@@ -18,6 +18,7 @@ package binding
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -125,6 +126,10 @@ func ensureWork(
 			continue
 		}
 
+		if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) && bindingSpec.IsWorkload() {
+			setApprovedReplicasAnnotation(clonedWorkload, bindingSpec, targetCluster)
+		}
+
 		if features.FeatureGate.Enabled(features.StatefulFailoverInjection) {
 			// we need to figure out if the targetCluster is in the cluster we are going to migrate application to.
 			// If yes, we have to inject the preserved label state to the clonedWorkload.
@@ -163,6 +168,31 @@ func buildJobCompletionsMap(completions []workv1alpha2.TargetCluster) map[string
 		m[jc.Name] = jc.Replicas
 	}
 	return m
+}
+
+// setApprovedReplicasAnnotation stamps the karmada.io/approved-replicas annotation onto
+// the workload manifest with the scheduler-approved replica counts for this target cluster.
+// For multi-component workloads the value is a JSON object (e.g. {"driver":1,"executor":5});
+// for single-component workloads it is a plain integer string (e.g. "5").
+func setApprovedReplicasAnnotation(workload *unstructured.Unstructured, bindingSpec workv1alpha2.ResourceBindingSpec, targetCluster workv1alpha2.TargetCluster) {
+	var value string
+	if len(bindingSpec.Components) > 0 {
+		m := make(map[string]int32, len(bindingSpec.Components))
+		for _, c := range bindingSpec.Components {
+			m[c.Name] = c.Replicas
+		}
+		data, _ := json.Marshal(m)
+		value = string(data)
+	} else {
+		value = strconv.Itoa(int(targetCluster.Replicas))
+	}
+
+	annotations := workload.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[workv1alpha2.ApprovedReplicasAnnotation] = value
+	workload.SetAnnotations(annotations)
 }
 
 // applyJobCompletions applies job completions to the workload.
