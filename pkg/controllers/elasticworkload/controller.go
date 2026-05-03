@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,12 +45,11 @@ const ControllerName = "elastic-workload-controller"
 
 // Controller watches a configured status field of resource templates for listed elastic GVKs.
 // When the watched field changes (written by RBStatusController via updateResourceStatus),
-// the controller bumps a karmada annotation on the resource template. This passes
-// SpecificationChanged, re-enqueues the resource template in the detector, and
-// GetComponents runs through the normal detection pipeline to update binding.Spec.Components.
-//
-// The annotation is stripped from Work manifests in ensureWork() so it never reaches
-// member clusters.
+// the controller stamps karmada.io/approved-replicas on the resource template with the
+// field's value. The annotation change passes SpecificationChanged, re-enqueues the
+// resource template in the detector, and flows through the normal pipeline to update the
+// ResourceBinding. The annotation reaches member clusters via Work sync, where the
+// gate-release controller reads it.
 type Controller struct {
 	client.Client
 	RESTMapper         meta.RESTMapper
@@ -63,17 +61,18 @@ type Controller struct {
 	ElasticWorkloadGVKs map[schema.GroupVersionKind]string
 }
 
-// Reconcile bumps the elastic-demand annotation on the resource template to trigger
-// the detector. The request NamespacedName refers to the resource template itself.
+// Reconcile reads the configured status field from the resource template and stamps
+// its value directly onto karmada.io/approved-replicas. The annotation flows through
+// ensureWork() to the Work manifest and on to member clusters, where the gate-release
+// controller reads it. No-ops if the value has not changed.
 func (c *Controller) Reconcile(ctx context.Context, req controllerruntime.Request) (controllerruntime.Result, error) {
 	if !features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) {
 		return controllerruntime.Result{}, nil
 	}
 
-	klog.V(4).InfoS("Triggering elastic workload re-detection", "resource", req.NamespacedName)
+	klog.V(4).InfoS("Syncing elastic workload approved-replicas annotation", "resource", req.NamespacedName)
 
 	resource := &unstructured.Unstructured{}
-	// controller-runtime populates GVK on the returned object when the cache knows the type.
 	if err := c.Client.Get(ctx, req.NamespacedName, resource); err != nil {
 		if apierrors.IsNotFound(err) {
 			return controllerruntime.Result{}, nil
@@ -81,18 +80,37 @@ func (c *Controller) Reconcile(ctx context.Context, req controllerruntime.Reques
 		return controllerruntime.Result{}, err
 	}
 
+	fieldPath, ok := c.ElasticWorkloadGVKs[resource.GroupVersionKind()]
+	if !ok {
+		return controllerruntime.Result{}, nil
+	}
+
+	parts := strings.Split(fieldPath, ".")
+	val, found, err := unstructured.NestedFieldNoCopy(resource.Object, parts...)
+	if err != nil {
+		return controllerruntime.Result{}, fmt.Errorf("failed to read field %s: %w", fieldPath, err)
+	}
+	if !found {
+		return controllerruntime.Result{}, nil
+	}
+
+	approvedValue := fmt.Sprintf("%v", val)
+
 	annotations := resource.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations[workv1alpha2.ElasticDemandAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
+	if annotations[workv1alpha2.ApprovedReplicasAnnotation] == approvedValue {
+		return controllerruntime.Result{}, nil
+	}
+	annotations[workv1alpha2.ApprovedReplicasAnnotation] = approvedValue
 	resource.SetAnnotations(annotations)
 
 	if err := c.Client.Update(ctx, resource); err != nil {
 		if apierrors.IsConflict(err) {
 			return controllerruntime.Result{Requeue: true}, nil
 		}
-		return controllerruntime.Result{}, fmt.Errorf("failed to bump elastic-demand annotation: %w", err)
+		return controllerruntime.Result{}, fmt.Errorf("failed to set approved-replicas annotation: %w", err)
 	}
 	return controllerruntime.Result{}, nil
 }

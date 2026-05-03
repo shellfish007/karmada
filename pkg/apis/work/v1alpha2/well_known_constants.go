@@ -126,19 +126,9 @@ const (
 	DeletionProtectionAlways   = "Always"
 )
 
-// Define annotations set by the binding controller on the workload manifest.
+// Define annotations set by the elastic workload controller on the resource template.
 const (
 	ApprovedReplicasAnnotation = "karmada.io/approved-replicas"
-)
-
-// Define annotations used by the elastic workload scheduling gate.
-const (
-	// ElasticDemandAnnotation is bumped by the ElasticWorkloadController on the
-	// resource template when its .status changes, triggering SpecificationChanged
-	// so the detector re-enqueues the resource template and runs GetComponents.
-	// This annotation is stripped from Work manifests in ensureWork() and never
-	// reaches member clusters.
-	ElasticDemandAnnotation = "karmada.io/elastic-demand"
 )
 
 // Define eviction reasons.
