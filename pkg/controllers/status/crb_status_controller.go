@@ -18,12 +18,9 @@ package status
 
 import (
 	"context"
-	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/record"
@@ -34,15 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configv1alpha1 "github.com/karmada-io/karmada/pkg/apis/config/v1alpha1"
 	workv1alpha1 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
-	"github.com/karmada-io/karmada/pkg/features"
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter"
 	"github.com/karmada-io/karmada/pkg/sharedcli/ratelimiterflag"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/helper"
-	"github.com/karmada-io/karmada/pkg/util/restmapper"
 )
 
 // CRBStatusControllerName is the controller name that will be used when reporting events and metrics.
@@ -127,45 +121,5 @@ func (c *CRBStatusController) syncBindingStatus(ctx context.Context, binding *wo
 		return err
 	}
 
-	if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) {
-		if err := c.syncComponentsFromStatus(ctx, binding); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *CRBStatusController) syncComponentsFromStatus(ctx context.Context, binding *workv1alpha2.ClusterResourceBinding) error {
-	gvk := schema.FromAPIVersionAndKind(binding.Spec.Resource.APIVersion, binding.Spec.Resource.Kind)
-	if !c.ResourceInterpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationPostAggregateStatus) {
-		return nil
-	}
-	gvr, err := restmapper.GetGroupVersionResource(c.RESTMapper, gvk)
-	if err != nil {
-		return err
-	}
-	resource, err := c.DynamicClient.Resource(gvr).Namespace(binding.Spec.Resource.Namespace).Get(ctx, binding.Spec.Resource.Name, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	newObj, err := c.ResourceInterpreter.PostAggregateStatus(resource)
-	if err != nil || newObj == nil {
-		return err
-	}
-	// Only patch if the hook actually changed the object.
-	if reflect.DeepEqual(resource, newObj) {
-		return nil
-	}
-	patchBytes, err := helper.GenMergePatch(resource, newObj)
-	if err != nil || len(patchBytes) == 0 {
-		return err
-	}
-	_, err = c.DynamicClient.Resource(gvr).Namespace(binding.Spec.Resource.Namespace).Patch(
-		ctx, binding.Spec.Resource.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{},
-	)
-	return err
+	return applyPostAggregateStatus(ctx, c.DynamicClient, c.RESTMapper, c.ResourceInterpreter, binding.Spec.Resource)
 }

@@ -145,9 +145,11 @@ type CustomizationRules struct {
 	// +optional
 	DependencyInterpretation *DependencyInterpretation `json:"dependencyInterpretation,omitempty"`
 
-	// PostAggregateStatus describes the rules for Karmada to derive current component
-	// demand from the aggregated status. Called after AggregateStatus writes live status
-	// to the resource template. Only used when ElasticWorkloadSchedulingGate is enabled.
+	// PostAggregateStatus describes the rules for Karmada to write back to the resource
+	// template after status aggregation. The hook receives the status-enriched object and
+	// returns a modified version (e.g. with a bumped annotation or spec field). The
+	// modification causes SpecificationChanged to fire, re-enqueuing the resource template
+	// in the detector so that GetComponents runs through the normal detection pipeline.
 	// +optional
 	PostAggregateStatus *PostAggregateStatusRequirement `json:"postAggregateStatus,omitempty"`
 }

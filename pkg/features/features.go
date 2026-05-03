@@ -139,14 +139,6 @@ const (
 	// owner: @mszacillo, @RainbowMango, @kevin-wangzefeng
 	// alpha: v1.17
 	WorkloadAffinity featuregate.Feature = "WorkloadAffinity"
-
-	// ElasticWorkloadSchedulingGate controls whether the elastic workload scheduling gate
-	// feature is enabled. When enabled, Karmada can derive per-component replica counts
-	// from the aggregated status and write approved-replicas annotations to Work objects,
-	// enabling elastic scaling workflows for multi-cluster workloads.
-	//
-	// alpha: v1.17
-	ElasticWorkloadSchedulingGate featuregate.Feature = "ElasticWorkloadSchedulingGate"
 )
 
 var (
@@ -175,7 +167,6 @@ var (
 		MultiplePodTemplatesScheduling:    {Default: false, PreRelease: featuregate.Alpha},
 		ControllerPriorityQueue:           {Default: true, PreRelease: featuregate.Beta},
 		WorkloadAffinity:                  {Default: false, PreRelease: featuregate.Alpha},
-		ElasticWorkloadSchedulingGate:     {Default: false, PreRelease: featuregate.Alpha},
 	}
 )
 
