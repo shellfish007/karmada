@@ -139,6 +139,15 @@ const (
 	// owner: @mszacillo, @RainbowMango, @kevin-wangzefeng
 	// alpha: v1.17
 	WorkloadAffinity featuregate.Feature = "WorkloadAffinity"
+
+	// ElasticWorkloadSchedulingGate enables the control plane to communicate approved
+	// per-component replica counts to member clusters via an annotation on the workload
+	// manifest. When enabled, the RBStatusController/CRBStatusController re-evaluates
+	// GetComponents after status aggregation and updates binding.Spec.Components directly.
+	//
+	// owner: @hzheng182
+	// alpha: v1.17
+	ElasticWorkloadSchedulingGate featuregate.Feature = "ElasticWorkloadSchedulingGate"
 )
 
 var (
@@ -167,6 +176,7 @@ var (
 		MultiplePodTemplatesScheduling:    {Default: false, PreRelease: featuregate.Alpha},
 		ControllerPriorityQueue:           {Default: true, PreRelease: featuregate.Beta},
 		WorkloadAffinity:                  {Default: false, PreRelease: featuregate.Alpha},
+		ElasticWorkloadSchedulingGate:     {Default: false, PreRelease: featuregate.Alpha},
 	}
 )
 
