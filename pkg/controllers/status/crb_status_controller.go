@@ -120,5 +120,6 @@ func (c *CRBStatusController) syncBindingStatus(ctx context.Context, binding *wo
 	if err != nil {
 		return err
 	}
-	return nil
+
+	return applyPostAggregateStatus(ctx, c.DynamicClient, c.RESTMapper, c.ResourceInterpreter, binding.Spec.Resource)
 }

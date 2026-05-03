@@ -78,6 +78,8 @@ func (c *ConfigurableInterpreter) HookEnabled(kind schema.GroupVersionKind, oper
 		script = accessor.GetRetentionLuaScript()
 	case configv1alpha1.InterpreterOperationReviseReplica:
 		script = accessor.GetReplicaRevisionLuaScript()
+	case configv1alpha1.InterpreterOperationPostAggregateStatus:
+		script = accessor.GetPostAggregateStatusLuaScript()
 	}
 	return len(script) > 0
 }
@@ -174,6 +176,24 @@ func (c *ConfigurableInterpreter) AggregateStatus(object *unstructured.Unstructu
 	klog.V(4).Infof("Running operation %s for object: %v %s/%s with configurable interpreter.",
 		configv1alpha1.InterpreterOperationAggregateStatus, object.GroupVersionKind(), object.GetNamespace(), object.GetName())
 	status, err = c.luaVM.AggregateStatus(object, aggregatedStatusItems, script)
+	return
+}
+
+// PostAggregateStatus runs the PostAggregateStatus Lua script and returns the
+// modified resource template.
+func (c *ConfigurableInterpreter) PostAggregateStatus(object *unstructured.Unstructured) (result *unstructured.Unstructured, enabled bool, err error) {
+	accessor, enabled := c.getCustomAccessor(object.GroupVersionKind())
+	if !enabled {
+		return
+	}
+	script := accessor.GetPostAggregateStatusLuaScript()
+	if len(script) == 0 {
+		enabled = false
+		return
+	}
+	klog.V(4).Infof("Running operation %s for object: %v %s/%s with configurable interpreter.",
+		configv1alpha1.InterpreterOperationPostAggregateStatus, object.GroupVersionKind(), object.GetNamespace(), object.GetName())
+	result, err = c.luaVM.PostAggregateStatus(object, script)
 	return
 }
 

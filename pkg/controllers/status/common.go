@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
@@ -39,6 +40,7 @@ import (
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
 	"github.com/karmada-io/karmada/pkg/events"
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter"
+	"github.com/karmada-io/karmada/pkg/util/helper"
 	"github.com/karmada-io/karmada/pkg/util/restmapper"
 )
 
@@ -212,4 +214,55 @@ func updateResourceStatus(
 	}
 
 	return nil
+}
+
+// applyPostAggregateStatus calls the PostAggregateStatus interpreter hook on the
+// status-enriched resource template. The hook returns a modified object (e.g. with
+// a bumped annotation or spec field); the status controller patches it so that
+// SpecificationChanged fires, the detector re-enqueues, and GetComponents runs
+// through the normal detection pipeline. HookEnabled is the only gate — no
+// feature flag is required.
+func applyPostAggregateStatus(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	restMapper meta.RESTMapper,
+	interpreter resourceinterpreter.ResourceInterpreter,
+	objRef workv1alpha2.ObjectReference,
+) error {
+	gvk := schema.FromAPIVersionAndKind(objRef.APIVersion, objRef.Kind)
+	if !interpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationPostAggregateStatus) {
+		return nil
+	}
+
+	gvr, err := restmapper.GetGroupVersionResource(restMapper, gvk)
+	if err != nil {
+		return err
+	}
+
+	resource, err := dynamicClient.Resource(gvr).Namespace(objRef.Namespace).Get(ctx, objRef.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	newObj, err := interpreter.PostAggregateStatus(resource)
+	if err != nil || newObj == nil {
+		return err
+	}
+
+	if reflect.DeepEqual(resource, newObj) {
+		return nil
+	}
+
+	patchBytes, err := helper.GenMergePatch(resource, newObj)
+	if err != nil || len(patchBytes) == 0 {
+		return err
+	}
+
+	_, err = dynamicClient.Resource(gvr).Namespace(objRef.Namespace).Patch(
+		ctx, objRef.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	return err
 }

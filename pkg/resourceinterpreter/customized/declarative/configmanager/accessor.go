@@ -37,6 +37,7 @@ type LuaScriptAccessor interface {
 	GetStatusAggregationLuaScript() string
 	GetHealthInterpretationLuaScript() string
 	GetDependencyInterpretationLuaScripts() []string
+	GetPostAggregateStatusLuaScript() string
 }
 
 // CustomAccessor provides a common interface to get custom interpreter configuration.
@@ -53,6 +54,7 @@ type resourceCustomAccessor struct {
 	statusAggregation         *configv1alpha1.StatusAggregation
 	healthInterpretation      *configv1alpha1.HealthInterpretation
 	dependencyInterpretations []*configv1alpha1.DependencyInterpretation
+	postAggregateStatus       *configv1alpha1.PostAggregateStatusRequirement
 }
 
 // NewResourceCustomAccessor creates an accessor for resource interpreter customization.
@@ -85,6 +87,9 @@ func (a *resourceCustomAccessor) Merge(rules configv1alpha1.CustomizationRules) 
 	}
 	if rules.DependencyInterpretation != nil {
 		a.appendDependencyInterpretation(rules.DependencyInterpretation)
+	}
+	if rules.PostAggregateStatus != nil {
+		a.setPostAggregateStatus(rules.PostAggregateStatus)
 	}
 }
 
@@ -230,4 +235,18 @@ func (a *resourceCustomAccessor) setHealthInterpretation(healthInterpretation *c
 
 func (a *resourceCustomAccessor) appendDependencyInterpretation(dependencyInterpretation *configv1alpha1.DependencyInterpretation) {
 	a.dependencyInterpretations = append(a.dependencyInterpretations, dependencyInterpretation)
+}
+
+func (a *resourceCustomAccessor) GetPostAggregateStatusLuaScript() string {
+	if a.postAggregateStatus == nil {
+		return ""
+	}
+	return a.postAggregateStatus.LuaScript
+}
+
+func (a *resourceCustomAccessor) setPostAggregateStatus(p *configv1alpha1.PostAggregateStatusRequirement) {
+	if a.postAggregateStatus != nil {
+		return
+	}
+	a.postAggregateStatus = p
 }

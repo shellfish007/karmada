@@ -181,6 +181,26 @@ func (vm *VM) GetComponents(obj *unstructured.Unstructured, script string) ([]wo
 	return components, nil
 }
 
+// PostAggregateStatus runs the PostAggregateStatus Lua script and returns the
+// modified resource template. The script reads from the aggregated status and
+// writes back to the object (e.g. updates a spec field or annotation) to
+// trigger re-detection by the detector.
+func (vm *VM) PostAggregateStatus(obj *unstructured.Unstructured, script string) (*unstructured.Unstructured, error) {
+	results, err := vm.RunScript(script, "PostAggregateStatus", 1, obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run 'PostAggregateStatus' script: %w", err)
+	}
+	result := results[0]
+	if result.Type() == lua.LTNil {
+		return nil, nil
+	}
+	revObj := &unstructured.Unstructured{}
+	if err := ConvertLuaResultInto(result.(*lua.LTable), revObj, obj); err != nil {
+		return nil, fmt.Errorf("failed to convert PostAggregateStatus result to object: %w", err)
+	}
+	return revObj, nil
+}
+
 // ReviseReplica revises the replica of the given object by lua.
 func (vm *VM) ReviseReplica(object *unstructured.Unstructured, replica int64, script string) (*unstructured.Unstructured, error) {
 	results, err := vm.RunScript(script, "ReviseReplica", 1, object, replica)

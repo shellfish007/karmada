@@ -144,6 +144,14 @@ type CustomizationRules struct {
 	// If DependencyInterpretation is set, the built-in rules will be ignored.
 	// +optional
 	DependencyInterpretation *DependencyInterpretation `json:"dependencyInterpretation,omitempty"`
+
+	// PostAggregateStatus describes the rules for Karmada to write back to the resource
+	// template after status aggregation. The hook receives the status-enriched object and
+	// returns a modified version (e.g. with a bumped annotation or spec field). The
+	// modification causes SpecificationChanged to fire, re-enqueuing the resource template
+	// in the detector so that GetComponents runs through the normal detection pipeline.
+	// +optional
+	PostAggregateStatus *PostAggregateStatusRequirement `json:"postAggregateStatus,omitempty"`
 }
 
 // LocalValueRetention holds the scripts for retention.
@@ -402,6 +410,14 @@ type DependencyInterpretation struct {
 	//       to the member cluster.
 	//
 	// The returned value should be expressed by a slice of DependentObjectReference.
+	// +required
+	LuaScript string `json:"luaScript"`
+}
+
+// PostAggregateStatusRequirement holds the Lua script for deriving component demand from status.
+type PostAggregateStatusRequirement struct {
+	// LuaScript holds the Lua script that derives per-component replica counts from the
+	// aggregated status of the resource template.
 	// +required
 	LuaScript string `json:"luaScript"`
 }

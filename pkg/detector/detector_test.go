@@ -1347,6 +1347,10 @@ func (m *mockResourceInterpreter) GetComponents(_ *unstructured.Unstructured) ([
 	return nil, nil
 }
 
+func (m *mockResourceInterpreter) PostAggregateStatus(_ *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	return nil, nil
+}
+
 func (m *mockResourceInterpreter) Start(_ context.Context) error {
 	return nil
 }
