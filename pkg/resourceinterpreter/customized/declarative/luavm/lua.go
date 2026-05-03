@@ -181,25 +181,24 @@ func (vm *VM) GetComponents(obj *unstructured.Unstructured, script string) ([]wo
 	return components, nil
 }
 
-// PostAggregateStatus derives component demand from the aggregated status.
-func (vm *VM) PostAggregateStatus(obj *unstructured.Unstructured, script string) ([]workv1alpha2.Component, error) {
+// PostAggregateStatus runs the PostAggregateStatus Lua script and returns the
+// modified resource template. The script reads from the aggregated status and
+// writes back to the object (e.g. updates a spec field or annotation) to
+// trigger re-detection by the detector.
+func (vm *VM) PostAggregateStatus(obj *unstructured.Unstructured, script string) (*unstructured.Unstructured, error) {
 	results, err := vm.RunScript(script, "PostAggregateStatus", 1, obj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run 'PostAggregateStatus' script: %w", err)
 	}
-	componentsResult := results[0]
-	var components []workv1alpha2.Component
-	switch componentsResult.Type() {
-	case lua.LTTable:
-		if err := ConvertLuaResultInto(componentsResult.(*lua.LTable), &components); err != nil {
-			return nil, fmt.Errorf("failed to convert lua table for PostAggregateStatus components: %w", err)
-		}
-	case lua.LTNil:
-		// valid: no components returned
-	default:
-		return nil, fmt.Errorf("expected table or nil from PostAggregateStatus, got '%s'", componentsResult.Type())
+	result := results[0]
+	if result.Type() == lua.LTNil {
+		return nil, nil
 	}
-	return components, nil
+	revObj := &unstructured.Unstructured{}
+	if err := ConvertLuaResultInto(result.(*lua.LTable), revObj, obj); err != nil {
+		return nil, fmt.Errorf("failed to convert PostAggregateStatus result to object: %w", err)
+	}
+	return revObj, nil
 }
 
 // ReviseReplica revises the replica of the given object by lua.

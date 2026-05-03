@@ -154,14 +154,20 @@ func (c *RBStatusController) syncComponentsFromStatus(ctx context.Context, bindi
 		}
 		return err
 	}
-	components, err := c.ResourceInterpreter.PostAggregateStatus(resource)
-	if err != nil || components == nil {
+	newObj, err := c.ResourceInterpreter.PostAggregateStatus(resource)
+	if err != nil || newObj == nil {
 		return err
 	}
-	if reflect.DeepEqual(components, binding.Spec.Components) {
+	// Only patch if the hook actually changed the object.
+	if reflect.DeepEqual(resource, newObj) {
 		return nil
 	}
-	patch := client.MergeFrom(binding.DeepCopy())
-	binding.Spec.Components = components
-	return c.Client.Patch(ctx, binding, patch)
+	patchBytes, err := helper.GenMergePatch(resource, newObj)
+	if err != nil || len(patchBytes) == 0 {
+		return err
+	}
+	_, err = c.DynamicClient.Resource(gvr).Namespace(binding.Spec.Resource.Namespace).Patch(
+		ctx, binding.Spec.Resource.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	return err
 }

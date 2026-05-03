@@ -244,6 +244,6 @@ func (f FakeResourceInterpreter) Start(_ context.Context) (err error) {
 	return nil
 }
 
-func (f FakeResourceInterpreter) PostAggregateStatus(_ *unstructured.Unstructured) ([]workv1alpha2.Component, error) {
+func (f FakeResourceInterpreter) PostAggregateStatus(_ *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	return nil, nil
 }

@@ -179,8 +179,9 @@ func (c *ConfigurableInterpreter) AggregateStatus(object *unstructured.Unstructu
 	return
 }
 
-// PostAggregateStatus derives component demand from the status-enriched object.
-func (c *ConfigurableInterpreter) PostAggregateStatus(object *unstructured.Unstructured) (components []workv1alpha2.Component, enabled bool, err error) {
+// PostAggregateStatus runs the PostAggregateStatus Lua script and returns the
+// modified resource template.
+func (c *ConfigurableInterpreter) PostAggregateStatus(object *unstructured.Unstructured) (result *unstructured.Unstructured, enabled bool, err error) {
 	accessor, enabled := c.getCustomAccessor(object.GroupVersionKind())
 	if !enabled {
 		return
@@ -192,7 +193,7 @@ func (c *ConfigurableInterpreter) PostAggregateStatus(object *unstructured.Unstr
 	}
 	klog.V(4).Infof("Running operation %s for object: %v %s/%s with configurable interpreter.",
 		configv1alpha1.InterpreterOperationPostAggregateStatus, object.GroupVersionKind(), object.GetNamespace(), object.GetName())
-	components, err = c.luaVM.PostAggregateStatus(object, script)
+	result, err = c.luaVM.PostAggregateStatus(object, script)
 	return
 }
 
