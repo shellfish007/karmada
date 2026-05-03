@@ -18,6 +18,7 @@ package binding
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -123,6 +124,10 @@ func ensureWork(
 			klog.ErrorS(err, "Failed to record appliedOverrides in cluster.", "cluster", targetCluster.Name)
 			errs = append(errs, err)
 			continue
+		}
+
+		if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) {
+			setApprovedReplicasAnnotation(clonedWorkload, targetCluster)
 		}
 
 		if features.FeatureGate.Enabled(features.StatefulFailoverInjection) {
@@ -361,6 +366,18 @@ func divideReplicasByJobCompletions(workload *unstructured.Unstructured, cluster
 
 func needReviseJobCompletions(replicas int32, placement *policyv1alpha1.Placement) bool {
 	return replicas > 0 && placement != nil && placement.ReplicaSchedulingType() == policyv1alpha1.ReplicaSchedulingTypeDivided
+}
+
+// setApprovedReplicasAnnotation writes the approved-replicas annotation to the workload
+// so that member-cluster controllers can observe the replica count approved by the scheduler.
+func setApprovedReplicasAnnotation(workload *unstructured.Unstructured, targetCluster workv1alpha2.TargetCluster) {
+	val, err := json.Marshal(map[string]int32{targetCluster.Name: targetCluster.Replicas})
+	if err != nil {
+		klog.ErrorS(err, "Failed to marshal approved-replicas annotation",
+			"cluster", targetCluster.Name, "replicas", targetCluster.Replicas)
+		return
+	}
+	util.MergeAnnotation(workload, workv1alpha2.ApprovedReplicasAnnotation, string(val))
 }
 
 func shouldSuspendDispatching(suspension *workv1alpha2.Suspension, targetCluster workv1alpha2.TargetCluster) bool {

@@ -181,6 +181,27 @@ func (vm *VM) GetComponents(obj *unstructured.Unstructured, script string) ([]wo
 	return components, nil
 }
 
+// PostAggregateStatus derives component demand from the aggregated status.
+func (vm *VM) PostAggregateStatus(obj *unstructured.Unstructured, script string) ([]workv1alpha2.Component, error) {
+	results, err := vm.RunScript(script, "PostAggregateStatus", 1, obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run 'PostAggregateStatus' script: %w", err)
+	}
+	componentsResult := results[0]
+	var components []workv1alpha2.Component
+	switch componentsResult.Type() {
+	case lua.LTTable:
+		if err := ConvertLuaResultInto(componentsResult.(*lua.LTable), &components); err != nil {
+			return nil, fmt.Errorf("failed to convert lua table for PostAggregateStatus components: %w", err)
+		}
+	case lua.LTNil:
+		// valid: no components returned
+	default:
+		return nil, fmt.Errorf("expected table or nil from PostAggregateStatus, got '%s'", componentsResult.Type())
+	}
+	return components, nil
+}
+
 // ReviseReplica revises the replica of the given object by lua.
 func (vm *VM) ReviseReplica(object *unstructured.Unstructured, replica int64, script string) (*unstructured.Unstructured, error) {
 	results, err := vm.RunScript(script, "ReviseReplica", 1, object, replica)

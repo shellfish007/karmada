@@ -126,6 +126,14 @@ const (
 	DeletionProtectionAlways   = "Always"
 )
 
+// Define annotations used by the elastic workload scheduling gate.
+const (
+	// ApprovedReplicasAnnotation is the annotation key used to record the approved
+	// replica count for each target cluster in a Work object. The value is a JSON
+	// map of cluster names to replica counts.
+	ApprovedReplicasAnnotation = "karmada.io/approved-replicas"
+)
+
 // Define eviction reasons.
 const (
 	// EvictionReasonTaintUntolerated describes the eviction is triggered

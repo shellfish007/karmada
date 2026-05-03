@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -241,4 +242,8 @@ type FakeResourceInterpreter struct {
 
 func (f FakeResourceInterpreter) Start(_ context.Context) (err error) {
 	return nil
+}
+
+func (f FakeResourceInterpreter) PostAggregateStatus(_ *unstructured.Unstructured) ([]workv1alpha2.Component, error) {
+	return nil, nil
 }

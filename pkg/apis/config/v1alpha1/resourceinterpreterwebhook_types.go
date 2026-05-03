@@ -158,6 +158,9 @@ const (
 	// Only necessary for those resource types that have dependencies resources and expect the dependencies be propagated
 	// together, like Deployment depends on ConfigMap/Secret.
 	InterpreterOperationInterpretDependency InterpreterOperation = "InterpretDependency"
+
+	// InterpreterOperationPostAggregateStatus identifies the PostAggregateStatus operation.
+	InterpreterOperationPostAggregateStatus InterpreterOperation = "PostAggregateStatus"
 )
 
 // Rule is a tuple of APIGroups, APIVersion, and Kinds.

@@ -62,6 +62,10 @@ type ResourceInterpreter interface {
 	// This hook will only be called when the feature gate 'MultiplePodTemplatesScheduling' is enabled.
 	GetComponents(object *unstructured.Unstructured) (components []workv1alpha2.Component, err error)
 
+	// PostAggregateStatus derives per-component replica counts from the aggregated status.
+	// Called after AggregateStatus has written live status to the resource template.
+	PostAggregateStatus(object *unstructured.Unstructured) (components []workv1alpha2.Component, err error)
+
 	// Retain returns the objects that based on the "desired" object but with values retained from the "observed" object.
 	Retain(desired *unstructured.Unstructured, observed *unstructured.Unstructured) (retained *unstructured.Unstructured, err error)
 
@@ -237,6 +241,21 @@ func (i *customResourceInterpreterImpl) GetComponents(object *unstructured.Unstr
 	// TODO(@RainbowMango): Implement GetComponents for extracting per-component replica and resource requirements.
 	// Follow up tracked by: https://github.com/karmada-io/karmada/issues/6641
 	return nil, errors.New("interface GetComponents not implemented yet")
+}
+
+// PostAggregateStatus derives component demand from the status-enriched object.
+func (i *customResourceInterpreterImpl) PostAggregateStatus(object *unstructured.Unstructured) ([]workv1alpha2.Component, error) {
+	if object == nil {
+		return nil, errors.New("nil object")
+	}
+	components, hookEnabled, err := i.configurableInterpreter.PostAggregateStatus(object)
+	if err != nil {
+		return nil, err
+	}
+	if hookEnabled {
+		return components, nil
+	}
+	return nil, nil
 }
 
 // Retain returns the objects that based on the "desired" object but with values retained from the "observed" object.

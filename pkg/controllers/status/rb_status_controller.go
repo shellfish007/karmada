@@ -18,9 +18,12 @@ package status
 
 import (
 	"context"
+	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/record"
@@ -31,12 +34,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configv1alpha1 "github.com/karmada-io/karmada/pkg/apis/config/v1alpha1"
 	workv1alpha1 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
+	"github.com/karmada-io/karmada/pkg/features"
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter"
 	"github.com/karmada-io/karmada/pkg/sharedcli/ratelimiterflag"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/helper"
+	"github.com/karmada-io/karmada/pkg/util/restmapper"
 )
 
 // RBStatusControllerName is the controller name that will be used when reporting events and metrics.
@@ -123,5 +129,39 @@ func (c *RBStatusController) syncBindingStatus(ctx context.Context, binding *wor
 		return err
 	}
 
+	if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) {
+		if err := c.syncComponentsFromStatus(ctx, binding); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (c *RBStatusController) syncComponentsFromStatus(ctx context.Context, binding *workv1alpha2.ResourceBinding) error {
+	gvk := schema.FromAPIVersionAndKind(binding.Spec.Resource.APIVersion, binding.Spec.Resource.Kind)
+	if !c.ResourceInterpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationPostAggregateStatus) {
+		return nil
+	}
+	gvr, err := restmapper.GetGroupVersionResource(c.RESTMapper, gvk)
+	if err != nil {
+		return err
+	}
+	resource, err := c.DynamicClient.Resource(gvr).Namespace(binding.Spec.Resource.Namespace).Get(ctx, binding.Spec.Resource.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	components, err := c.ResourceInterpreter.PostAggregateStatus(resource)
+	if err != nil || components == nil {
+		return err
+	}
+	if reflect.DeepEqual(components, binding.Spec.Components) {
+		return nil
+	}
+	patch := client.MergeFrom(binding.DeepCopy())
+	binding.Spec.Components = components
+	return c.Client.Patch(ctx, binding, patch)
 }

@@ -144,6 +144,12 @@ type CustomizationRules struct {
 	// If DependencyInterpretation is set, the built-in rules will be ignored.
 	// +optional
 	DependencyInterpretation *DependencyInterpretation `json:"dependencyInterpretation,omitempty"`
+
+	// PostAggregateStatus describes the rules for Karmada to derive current component
+	// demand from the aggregated status. Called after AggregateStatus writes live status
+	// to the resource template. Only used when ElasticWorkloadSchedulingGate is enabled.
+	// +optional
+	PostAggregateStatus *PostAggregateStatusRequirement `json:"postAggregateStatus,omitempty"`
 }
 
 // LocalValueRetention holds the scripts for retention.
@@ -402,6 +408,14 @@ type DependencyInterpretation struct {
 	//       to the member cluster.
 	//
 	// The returned value should be expressed by a slice of DependentObjectReference.
+	// +required
+	LuaScript string `json:"luaScript"`
+}
+
+// PostAggregateStatusRequirement holds the Lua script for deriving component demand from status.
+type PostAggregateStatusRequirement struct {
+	// LuaScript holds the Lua script that derives per-component replica counts from the
+	// aggregated status of the resource template.
 	// +required
 	LuaScript string `json:"luaScript"`
 }
