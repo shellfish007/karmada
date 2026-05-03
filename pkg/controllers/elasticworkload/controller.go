@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	controllerruntime "sigs.k8s.io/controller-runtime"
@@ -48,14 +49,19 @@ import (
 // ControllerName is the controller name that will be used when reporting events and metrics.
 const ControllerName = "elastic-workload-controller"
 
-// Controller watches Work status changes and re-evaluates GetComponents on the
-// status-enriched resource template to update binding.Spec.Components.
+// Controller watches Work status changes and re-evaluates component demand from
+// the status-enriched resource template for elastic workload types.
+// Only GVKs listed in ElasticWorkloadGVKs are processed.
 type Controller struct {
 	client.Client
-	DynamicClient       dynamic.Interface
-	RESTMapper          meta.RESTMapper
-	ResourceInterpreter resourceinterpreter.ResourceInterpreter
-	RateLimiterOptions  ratelimiterflag.Options
+	DynamicClient        dynamic.Interface
+	RESTMapper           meta.RESTMapper
+	ResourceInterpreter  resourceinterpreter.ResourceInterpreter
+	RateLimiterOptions   ratelimiterflag.Options
+	// ElasticWorkloadGVKs is the set of GVKs that support runtime elastic scaling.
+	// Populated from the --elastic-workload-gvks flag at controller startup.
+	// Format: "group/version/kind", e.g. "sparkoperator.k8s.io/v1beta2/SparkApplication".
+	ElasticWorkloadGVKs sets.Set[schema.GroupVersionKind]
 }
 
 // Reconcile re-evaluates component demand from the status-enriched resource template.
@@ -86,7 +92,9 @@ func (c *Controller) Reconcile(ctx context.Context, req controllerruntime.Reques
 
 func (c *Controller) syncComponents(ctx context.Context, binding *workv1alpha2.ResourceBinding) error {
 	gvk := schema.FromAPIVersionAndKind(binding.Spec.Resource.APIVersion, binding.Spec.Resource.Kind)
-	if !c.ResourceInterpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationInterpretComponent) {
+
+	// Only process GVKs explicitly listed as elastic workload types.
+	if c.ElasticWorkloadGVKs.Len() > 0 && !c.ElasticWorkloadGVKs.Has(gvk) {
 		return nil
 	}
 
@@ -105,18 +113,35 @@ func (c *Controller) syncComponents(ctx context.Context, binding *workv1alpha2.R
 		return err
 	}
 
-	components, err := c.ResourceInterpreter.GetComponents(resource)
-	if err != nil {
-		return err
+	// Multi-component workload: update binding.Spec.Components.
+	if c.ResourceInterpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationInterpretComponent) {
+		components, err := c.ResourceInterpreter.GetComponents(resource)
+		if err != nil {
+			return err
+		}
+		if reflect.DeepEqual(components, binding.Spec.Components) {
+			return nil
+		}
+		patch := client.MergeFrom(binding.DeepCopy())
+		binding.Spec.Components = components
+		return c.Client.Patch(ctx, binding, patch)
 	}
 
-	if reflect.DeepEqual(components, binding.Spec.Components) {
-		return nil
+	// Single-component workload: update binding.Spec.Replicas.
+	if c.ResourceInterpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationInterpretReplica) {
+		replicas, _, err := c.ResourceInterpreter.GetReplicas(resource)
+		if err != nil {
+			return err
+		}
+		if replicas == binding.Spec.Replicas {
+			return nil
+		}
+		patch := client.MergeFrom(binding.DeepCopy())
+		binding.Spec.Replicas = replicas
+		return c.Client.Patch(ctx, binding, patch)
 	}
 
-	patch := client.MergeFrom(binding.DeepCopy())
-	binding.Spec.Components = components
-	return c.Client.Patch(ctx, binding, patch)
+	return nil
 }
 
 // SetupWithManager creates the controller and registers it with the manager.
