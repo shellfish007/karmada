@@ -213,3 +213,36 @@ func updateResourceStatus(
 
 	return nil
 }
+
+func getUpdatedComponents(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	restMapper meta.RESTMapper,
+	interpreter resourceinterpreter.ResourceInterpreter,
+	objRef workv1alpha2.ObjectReference,
+	currentComponents []workv1alpha2.Component,
+) ([]workv1alpha2.Component, bool, error) {
+	gvk := schema.FromAPIVersionAndKind(objRef.APIVersion, objRef.Kind)
+	if !interpreter.HookEnabled(gvk, configv1alpha1.InterpreterOperationInterpretComponent) {
+		return nil, false, nil
+	}
+	gvr, err := restmapper.GetGroupVersionResource(restMapper, gvk)
+	if err != nil {
+		return nil, false, err
+	}
+	resource, err := dynamicClient.Resource(gvr).Namespace(objRef.Namespace).Get(ctx, objRef.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	components, err := interpreter.GetComponents(resource)
+	if err != nil {
+		return nil, false, err
+	}
+	if reflect.DeepEqual(components, currentComponents) {
+		return nil, false, nil
+	}
+	return components, true, nil
+}

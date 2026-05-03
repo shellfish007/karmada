@@ -126,6 +126,11 @@ const (
 	DeletionProtectionAlways   = "Always"
 )
 
+// Define annotations set by the binding controller on the workload manifest.
+const (
+	ApprovedReplicasAnnotation = "karmada.io/approved-replicas"
+)
+
 // Define eviction reasons.
 const (
 	// EvictionReasonTaintUntolerated describes the eviction is triggered

@@ -33,6 +33,7 @@ import (
 
 	workv1alpha1 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
+	"github.com/karmada-io/karmada/pkg/features"
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter"
 	"github.com/karmada-io/karmada/pkg/sharedcli/ratelimiterflag"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
@@ -120,5 +121,20 @@ func (c *CRBStatusController) syncBindingStatus(ctx context.Context, binding *wo
 	if err != nil {
 		return err
 	}
+
+	if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) {
+		newComponents, changed, err := getUpdatedComponents(ctx, c.DynamicClient, c.RESTMapper, c.ResourceInterpreter, binding.Spec.Resource, binding.Spec.Components)
+		if err != nil {
+			return err
+		}
+		if changed {
+			patch := client.MergeFrom(binding.DeepCopy())
+			binding.Spec.Components = newComponents
+			if err := c.Client.Patch(ctx, binding, patch); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
