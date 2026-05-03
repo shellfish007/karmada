@@ -128,6 +128,10 @@ func ensureWork(
 
 		if features.FeatureGate.Enabled(features.ElasticWorkloadSchedulingGate) && bindingSpec.IsWorkload() {
 			setApprovedReplicasAnnotation(clonedWorkload, bindingSpec, targetCluster)
+			// Strip the internal elastic-demand annotation so it never reaches member clusters.
+			workloadAnnotations := clonedWorkload.GetAnnotations()
+			delete(workloadAnnotations, workv1alpha2.ElasticDemandAnnotation)
+			clonedWorkload.SetAnnotations(workloadAnnotations)
 		}
 
 		if features.FeatureGate.Enabled(features.StatefulFailoverInjection) {
