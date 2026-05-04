@@ -126,6 +126,11 @@ const (
 	DeletionProtectionAlways   = "Always"
 )
 
+// Define annotations set by the elastic workload controller on the resource template.
+const (
+	ApprovedReplicasAnnotation = "karmada.io/approved-replicas"
+)
+
 // Define eviction reasons.
 const (
 	// EvictionReasonTaintUntolerated describes the eviction is triggered
