@@ -24,6 +24,8 @@ FRQ enforces aggregate resource limits per namespace across clusters from the co
 
 Once a workload is running in a member cluster, it can create new pods freely without consulting Karmada. There is no mechanism for the control plane to approve or deny a scale-up before new pods consume resources.
 
+FederatedHPA does not help here. Certain elastic workloads have a two-layer architecture: an operator creates the initial resource (e.g., a driver or master pod), and that resource then dynamically spawns worker pods based on its own internal metrics and logic. This runtime scaling happens entirely within the member cluster, driven by the workload itself — not by a Kubernetes-managed replica field. FederatedHPA can only adjust a declared replica field in the spec; it cannot intercept or govern pods that are created autonomously by a running workload.
+
 ### Goals
 
 - Hold elastic workload pods via scheduling gates until the control plane approves the scale-up.
@@ -36,11 +38,11 @@ Once a workload is running in a member cluster, it can create new pods freely wi
 
 ## User Stories
 
-**Scale-Up:** Team A's Spark job requests 3 more executors. The new pods are created with scheduling gates (set by a mutating webhook). Status propagation detects the increased demand. The control plane approves against FRQ and communicates the approved count to the member cluster. Gates are released and pods run.
+**Scale-Up:** Team A's elastic job requests 3 more workers. The new pods are created with scheduling gates (set by a mutating webhook). Status propagation detects the increased demand. The control plane approves against FRQ and communicates the approved count to the member cluster. Gates are released and pods run.
 
-**Scale-Down:** Spark releases 3 executors. Pods terminate, status propagates, the control plane updates the approved state, and freed quota returns to the FRQ pool for the workload to reclaim if it scales back up.
+**Scale-Down:** The elastic job releases 3 workers. Pods terminate, status propagates, the control plane updates the approved state, and freed quota returns to the FRQ pool for the workload to reclaim if it scales back up.
 
-**Blocked Scale-Up:** Spark requests 6 more executors but namespace quota is exhausted by other workloads in the same namespace. The approved state is not updated — all 6 pods remain `SchedulingGated`. When quota becomes available (e.g., another workload in the namespace finishes), the control plane re-evaluates, approves, and gates are released.
+**Blocked Scale-Up:** The elastic job requests 6 more workers but namespace quota is exhausted by other workloads in the same namespace. The approved state is not updated — all 6 pods remain `SchedulingGated`. When quota becomes available (e.g., another workload in the namespace finishes), the control plane re-evaluates, approves, and gates are released.
 
 ## Design Details
 
@@ -54,31 +56,29 @@ Once a workload is running in a member cluster, it can create new pods freely wi
 
 When an elastic workload scales in a member cluster, status propagates back via `InterpretStatus` / `AggregateStatus`, but no controller acts on these changes to communicate approval back. Additionally, the detector's `SpecificationChanged` filter (`pkg/util/eventfilter/eventfilter.go`) strips `.status` before comparing, so status updates do not re-trigger the detector pipeline.
 
-Two approaches are described below.
-
 ---
 
 ### Approach A: Dedicated `ElasticWorkloadController`
 
 **Branch:** [`elastic-workloads-dedicated-controller`](https://github.com/shellfish007/karmada/compare/master...elastic-workloads-dedicated-controller)
 
-A new controller watches a configured status field on resource templates for declared elastic GVKs and stamps `karmada.io/approved-replicas` with the field's value. The annotation flows via Work sync to the member cluster. The annotation change can trigger FRQ re-evaluation in the control plane before sync.
+A new controller watches a configured status field on resource templates for declared elastic GVKs and stamps `karmada.io/approved-replicas` with the field's value. The annotation is the recalculation signal, not the quota source: it makes the detector treat the resource template as changed, re-run component/replica extraction from the latest template status, and update the quota-relevant `ResourceBinding` fields. That `ResourceBinding` update then triggers FRQ validation in the control plane before Work sync.
 
 ```
 Member Cluster                    Control Plane
 ─────────────                    ─────────────
-Spark adds executors
+Workload scales up
   │
   ▼
 Work.Status updated ──────────► RBStatusController
                                   │
                                   └─ AggregateStatus → write .status to resource template
                                                          │
-                                ElasticWorkloadController │ (watches status.executors)
+                                ElasticWorkloadController │ (watches configured status field)
                                   │                       │
                                   ◄───────────────────────┘
                                   │
-                                  ├─ read status.executors → "5"
+                                  ├─ read configured field → "5"
                                   ├─ approved-replicas already "5"? → no-op
                                   └─ stamp karmada.io/approved-replicas = "5"
                                        │
@@ -87,6 +87,7 @@ Work.Status updated ──────────► RBStatusController
                                        │
                                        ▼
                                   ResourceBinding updated
+                                  (components/replicas recalculated from status)
                                        │
                                        ▼
                                   Scheduler re-evaluates (checks FRQ)
@@ -135,7 +136,7 @@ Adds a `PostAggregateStatus` interpreter operation called by `RBStatusController
 ```
 Member Cluster                    Control Plane
 ─────────────                    ─────────────
-Spark adds executors
+Workload scales up
   │
   ▼
 Work.Status updated ──────────► RBStatusController
@@ -206,6 +207,20 @@ hook-written signal, releases gates
 | User Lua scripts | 0 | 2 (`GetComponents` + `PostAggregateStatus`) |
 | Feature gate | Yes (`ElasticWorkloadSchedulingGate`) | No (remove hook config to disable) |
 
+### Edge Cases
+
+**Partial approval:** Quota enforcement is all-or-nothing per scale event. If a workload requests 6 more workers but FRQ only has capacity for 2, the entire scale-up is blocked — all 6 pods remain `SchedulingGated`. When sufficient quota becomes available, the control plane re-evaluates and approves the full request.
+
+**Concurrent scale-up:** When multiple elastic workloads in the same namespace scale simultaneously, quota contention is resolved through Kubernetes optimistic locking. Each workload's approval is processed independently; if a conflict occurs (e.g., two workloads compete for remaining quota), the losing update is retried with exponential backoff.
+
+**Control plane unavailability:** If the control plane is unreachable, pods remain `SchedulingGated` indefinitely. Status cannot propagate back, the approval annotation is never stamped, and gates are never released. This is intentional — it prevents uncontrolled scale-up when centralized quota enforcement is unavailable. Recovery is automatic once connectivity is restored and status propagation resumes.
+
+## Test Plan
+
+- **Unit tests:** Controller logic for annotation stamping, predicate filtering, and conflict retry.
+- **Integration tests:** End-to-end flow from status propagation through annotation stamping to FRQ validation webhook rejection/approval.
+- **E2E tests:** Full cycle with a sample elastic workload: scale-up approved, scale-down quota release, and blocked scale-up when FRQ is exhausted.
+
 ## Alternatives
 
 ### Reuse `GetComponents` in `RBStatusController`
@@ -217,7 +232,7 @@ After `updateResourceStatus`, `RBStatusController` calls `GetComponents` on the 
 ```
 Member Cluster                    Control Plane
 ─────────────                    ─────────────
-Spark adds executors
+Workload scales up
   │
   ▼
 Work.Status updated ──────────► RBStatusController
