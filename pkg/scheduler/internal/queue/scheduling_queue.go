@@ -126,6 +126,12 @@ var defaultSchedulingQueueOptions = schedulingQueueOptions{
 
 // NewSchedulingQueue builds a SchedulingQueue instance.
 func NewSchedulingQueue(opts ...Option) SchedulingQueue {
+	return newPrioritySchedulingQueue(opts...)
+}
+
+// newPrioritySchedulingQueue creates a prioritySchedulingQueue and returns
+// the concrete type. Used internally by TenantSchedulingQueue.
+func newPrioritySchedulingQueue(opts ...Option) *prioritySchedulingQueue {
 	options := defaultSchedulingQueueOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -179,6 +185,10 @@ type prioritySchedulingQueue struct {
 	backoffQ *heap.Heap[*QueuedBindingInfo]
 	// unschedulableBindings holds bindings that have been tried and determined unschedulable.
 	unschedulableBindings *UnschedulableBindings
+
+	// onActiveQPush is called whenever a binding is moved to activeQ.
+	// Used by TenantSchedulingQueue to wake up its Pop() goroutine.
+	onActiveQPush func()
 }
 
 // Run starts the goroutine to flush backoffQ and unschedulableBindings.
@@ -298,6 +308,35 @@ func (bq *prioritySchedulingQueue) Pop() (*QueuedBindingInfo, bool) {
 	return bq.activeQ.Pop()
 }
 
+// drainPending removes and returns every binding waiting in activeQ, backoffQ and
+// unschedulableBindings. Bindings that were already handed out by Pop but not yet
+// Done are not returned, since their owner is still processing them.
+//
+// It is used by TenantSchedulingQueue to rescue a tenant's pending work before the
+// tenant queue is closed.
+func (bq *prioritySchedulingQueue) drainPending() []*QueuedBindingInfo {
+	bq.lock.Lock()
+	defer bq.lock.Unlock()
+
+	var drained []*QueuedBindingInfo
+	if dq, ok := bq.activeQ.(drainableActiveQueue); ok {
+		drained = append(drained, dq.Drain()...)
+	}
+	for {
+		bindingInfo, err := bq.backoffQ.Pop()
+		if err != nil {
+			break
+		}
+		drained = append(drained, bindingInfo)
+	}
+	for _, bindingInfo := range bq.unschedulableBindings.bindingInfoMap {
+		drained = append(drained, bindingInfo)
+	}
+	bq.unschedulableBindings.clear()
+
+	return drained
+}
+
 func (bq *prioritySchedulingQueue) PushUnschedulableIfNotPresent(bindingInfo *QueuedBindingInfo) {
 	bq.lock.Lock()
 	defer bq.lock.Unlock()
@@ -345,6 +384,9 @@ func (bq *prioritySchedulingQueue) moveToActiveQ(bindingInfo *QueuedBindingInfo)
 	_ = bq.backoffQ.Delete(bindingInfo) // just ignore this not-found error
 	bq.unschedulableBindings.delete(bindingInfo.NamespacedKey)
 	klog.V(4).InfoS("Binding moved to an internal scheduling queue", "binding", bindingInfo.NamespacedKey, "queue", activeQ)
+	if bq.onActiveQPush != nil {
+		bq.onActiveQPush()
+	}
 }
 
 // UnschedulableBindings holds bindings that cannot be scheduled. This data structure

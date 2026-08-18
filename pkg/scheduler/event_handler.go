@@ -32,6 +32,7 @@ import (
 
 	clusterv1alpha1 "github.com/karmada-io/karmada/pkg/apis/cluster/v1alpha1"
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
+	schedulingv1alpha1 "github.com/karmada-io/karmada/pkg/apis/scheduling/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
 	"github.com/karmada-io/karmada/pkg/features"
 	internalqueue "github.com/karmada-io/karmada/pkg/scheduler/internal/queue"
@@ -79,6 +80,18 @@ func (s *Scheduler) addAllEventHandlers() {
 	)
 	if err != nil {
 		klog.Errorf("Failed to add handlers for Clusters: %v", err)
+	}
+
+	if features.FeatureGate.Enabled(features.TenantQueueManagement) {
+		sqInformer := s.informerFactory.Scheduling().V1alpha1().TenantQueues().Informer()
+		_, err = sqInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc:    s.onTenantQueueAdd,
+			UpdateFunc: s.onTenantQueueUpdate,
+			DeleteFunc: s.onTenantQueueDelete,
+		})
+		if err != nil {
+			klog.Errorf("Failed to add handlers for TenantQueues: %v", err)
+		}
 	}
 
 	// ignore the error here because the informers haven't been started
@@ -444,4 +457,58 @@ func (s *Scheduler) enqueueAffectedCRBs(cluster *clusterv1alpha1.Cluster) error 
 	}
 
 	return nil
+}
+
+// onTenantQueueAdd handles the creation of a TenantQueue object.
+// The TenantQueue's namespace is the tenant — bindings in that namespace
+// are routed to this queue.
+func (s *Scheduler) onTenantQueueAdd(obj interface{}) {
+	tq, ok := obj.(*schedulingv1alpha1.TenantQueue)
+	if !ok {
+		klog.Errorf("unexpected object type: %T", obj)
+		return
+	}
+
+	if s.tenantQueue == nil {
+		return
+	}
+
+	s.tenantQueue.AddTenant(tq.Namespace, tq.Spec.QueueingStrategy)
+	klog.V(2).InfoS("TenantQueue added", "namespace", tq.Namespace, "strategy", tq.Spec.QueueingStrategy)
+}
+
+// onTenantQueueUpdate handles updates to a TenantQueue object.
+func (s *Scheduler) onTenantQueueUpdate(oldObj, newObj interface{}) {
+	// QueueingStrategy changes require removing and re-adding the tenant.
+	// For now, log the update — strategy is set at creation time.
+	tq, ok := newObj.(*schedulingv1alpha1.TenantQueue)
+	if !ok {
+		klog.Errorf("unexpected object type: %T", newObj)
+		return
+	}
+	klog.V(2).InfoS("TenantQueue updated", "namespace", tq.Namespace)
+}
+
+// onTenantQueueDelete handles the deletion of a TenantQueue object.
+func (s *Scheduler) onTenantQueueDelete(obj interface{}) {
+	tq, ok := obj.(*schedulingv1alpha1.TenantQueue)
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			klog.Errorf("unexpected object type: %T", obj)
+			return
+		}
+		tq, ok = tombstone.Obj.(*schedulingv1alpha1.TenantQueue)
+		if !ok {
+			klog.Errorf("unexpected tombstone object type: %T", tombstone.Obj)
+			return
+		}
+	}
+
+	if s.tenantQueue == nil {
+		return
+	}
+
+	s.tenantQueue.RemoveTenant(tq.Namespace)
+	klog.V(2).InfoS("TenantQueue deleted", "namespace", tq.Namespace)
 }

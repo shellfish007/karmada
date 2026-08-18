@@ -1669,6 +1669,29 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.karmada-io.karmada.pkg.apis.remedy.v1alpha1.DecisionMatch
           elementRelationship: atomic
+- name: com.github.karmada-io.karmada.pkg.apis.scheduling.v1alpha1.TenantQueue
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+      default: {}
+    - name: spec
+      type:
+        namedType: com.github.karmada-io.karmada.pkg.apis.scheduling.v1alpha1.TenantQueueSpec
+      default: {}
+- name: com.github.karmada-io.karmada.pkg.apis.scheduling.v1alpha1.TenantQueueSpec
+  map:
+    fields:
+    - name: queueingStrategy
+      type:
+        scalar: string
 - name: com.github.karmada-io.karmada.pkg.apis.search.v1alpha1.BackendStoreConfig
   map:
     fields:

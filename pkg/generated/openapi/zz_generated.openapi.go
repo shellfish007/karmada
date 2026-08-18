@@ -29,6 +29,7 @@ import (
 	networkingv1alpha1 "github.com/karmada-io/karmada/pkg/apis/networking/v1alpha1"
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
 	remedyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/remedy/v1alpha1"
+	schedulingv1alpha1 "github.com/karmada-io/karmada/pkg/apis/scheduling/v1alpha1"
 	searchv1alpha1 "github.com/karmada-io/karmada/pkg/apis/search/v1alpha1"
 	workv1alpha1 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha1"
 	v1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
@@ -173,6 +174,9 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		remedyv1alpha1.Remedy{}.OpenAPIModelName():                                      schema_pkg_apis_remedy_v1alpha1_Remedy(ref),
 		remedyv1alpha1.RemedyList{}.OpenAPIModelName():                                  schema_pkg_apis_remedy_v1alpha1_RemedyList(ref),
 		remedyv1alpha1.RemedySpec{}.OpenAPIModelName():                                  schema_pkg_apis_remedy_v1alpha1_RemedySpec(ref),
+		schedulingv1alpha1.TenantQueue{}.OpenAPIModelName():                             schema_pkg_apis_scheduling_v1alpha1_TenantQueue(ref),
+		schedulingv1alpha1.TenantQueueList{}.OpenAPIModelName():                         schema_pkg_apis_scheduling_v1alpha1_TenantQueueList(ref),
+		schedulingv1alpha1.TenantQueueSpec{}.OpenAPIModelName():                         schema_pkg_apis_scheduling_v1alpha1_TenantQueueSpec(ref),
 		searchv1alpha1.BackendStoreConfig{}.OpenAPIModelName():                          schema_pkg_apis_search_v1alpha1_BackendStoreConfig(ref),
 		searchv1alpha1.OpenSearchConfig{}.OpenAPIModelName():                            schema_pkg_apis_search_v1alpha1_OpenSearchConfig(ref),
 		searchv1alpha1.Proxying{}.OpenAPIModelName():                                    schema_pkg_apis_search_v1alpha1_Proxying(ref),
@@ -6182,6 +6186,118 @@ func schema_pkg_apis_remedy_v1alpha1_RemedySpec(ref common.ReferenceCallback) co
 		},
 		Dependencies: []string{
 			remedyv1alpha1.ClusterAffinity{}.OpenAPIModelName(), remedyv1alpha1.DecisionMatch{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_scheduling_v1alpha1_TenantQueue(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "TenantQueue configures per-tenant scheduling queue settings. It is namespace-scoped — one TenantQueue per namespace. ResourceBindings in the same namespace are routed to this queue for scheduling.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(metav1.ObjectMeta{}.OpenAPIModelName()),
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec defines the desired queue configuration.",
+							Default:     map[string]interface{}{},
+							Ref:         ref(schedulingv1alpha1.TenantQueueSpec{}.OpenAPIModelName()),
+						},
+					},
+				},
+				Required: []string{"spec"},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1alpha1.TenantQueueSpec{}.OpenAPIModelName(), metav1.ObjectMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_scheduling_v1alpha1_TenantQueueList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "TenantQueueList contains a list of TenantQueue.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(metav1.ListMeta{}.OpenAPIModelName()),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref(schedulingv1alpha1.TenantQueue{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1alpha1.TenantQueue{}.OpenAPIModelName(), metav1.ListMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_scheduling_v1alpha1_TenantQueueSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "TenantQueueSpec defines the configuration for a tenant's scheduling queue.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"queueingStrategy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "QueueingStrategy controls the ordering and blocking behavior of bindings in the active queue.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
