@@ -42,6 +42,10 @@ func IsSpreadConstraintExisted(spreadConstraints []policyv1alpha1.SpreadConstrai
 
 func sortClusters(infos []ClusterDetailInfo, compareFunctions ...func(*ClusterDetailInfo, *ClusterDetailInfo) *bool) {
 	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].OverflowOrder != infos[j].OverflowOrder {
+			return infos[i].OverflowOrder < infos[j].OverflowOrder
+		}
+
 		if infos[i].Score != infos[j].Score {
 			return infos[i].Score > infos[j].Score
 		}

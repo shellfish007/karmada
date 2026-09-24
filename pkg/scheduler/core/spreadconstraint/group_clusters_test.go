@@ -51,6 +51,7 @@ func Test_GroupClustersWithScore(t *testing.T) {
 		clustersScore framework.ClusterScoreList
 		placement     *policyv1alpha1.Placement
 		spec          *workv1alpha2.ResourceBindingSpec
+		status        *workv1alpha2.ResourceBindingStatus
 	}
 	type want struct {
 		clusters    []string
@@ -70,6 +71,7 @@ func Test_GroupClustersWithScore(t *testing.T) {
 				clustersScore: generateClusterScore(),
 				placement:     &policyv1alpha1.Placement{},
 				spec:          &workv1alpha2.ResourceBindingSpec{},
+				status:        &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters: []string{"member4", "member2", "member3", "member1"},
@@ -88,7 +90,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 						},
 					},
 				},
-				spec: &workv1alpha2.ResourceBindingSpec{},
+				spec:   &workv1alpha2.ResourceBindingSpec{},
+				status: &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters: []string{"member4", "member2", "member3", "member1"},
@@ -107,7 +110,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 						},
 					},
 				},
-				spec: &workv1alpha2.ResourceBindingSpec{},
+				spec:   &workv1alpha2.ResourceBindingSpec{},
+				status: &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters: []string{"member4", "member2", "member3", "member1"},
@@ -127,7 +131,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 						},
 					},
 				},
-				spec: &workv1alpha2.ResourceBindingSpec{},
+				spec:   &workv1alpha2.ResourceBindingSpec{},
+				status: &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters:  []string{"member4", "member2", "member3", "member1"},
@@ -147,7 +152,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 						},
 					},
 				},
-				spec: &workv1alpha2.ResourceBindingSpec{},
+				spec:   &workv1alpha2.ResourceBindingSpec{},
+				status: &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters:    []string{"member4", "member2", "member3", "member1"},
@@ -177,7 +183,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 						},
 					},
 				},
-				spec: &workv1alpha2.ResourceBindingSpec{},
+				spec:   &workv1alpha2.ResourceBindingSpec{},
+				status: &workv1alpha2.ResourceBindingStatus{},
 			},
 			want: want{
 				clusters:    []string{"member4", "member2", "member3", "member1"},
@@ -201,7 +208,8 @@ func Test_GroupClustersWithScore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groupInfo := GroupClustersWithScore(tt.args.clustersScore, tt.args.placement, tt.args.spec, calAvailableReplicasFunc)
+			tt.args.spec.Placement = tt.args.placement
+			groupInfo := GroupClustersWithScore(tt.args.clustersScore, tt.args.placement, tt.args.spec, tt.args.status, calAvailableReplicasFunc)
 			for i, cluster := range groupInfo.Clusters {
 				if cluster.Name != tt.want.clusters[i] {
 					t.Errorf("test %s : the clusters aren't sorted", tt.name)

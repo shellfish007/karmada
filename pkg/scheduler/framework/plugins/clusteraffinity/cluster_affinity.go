@@ -54,22 +54,38 @@ func (p *ClusterAffinity) Filter(
 	bindingStatus *workv1alpha2.ResourceBindingStatus,
 	cluster *clusterv1alpha1.Cluster,
 ) *framework.Result {
-	var affinity *policyv1alpha1.ClusterAffinity
+	var affinities []*policyv1alpha1.ClusterAffinity
 	if bindingSpec.Placement.ClusterAffinity != nil {
-		affinity = bindingSpec.Placement.ClusterAffinity
+		affinities = append(affinities, bindingSpec.Placement.ClusterAffinity)
 	} else {
 		for index, term := range bindingSpec.Placement.ClusterAffinities {
-			if term.AffinityName == bindingStatus.SchedulerObservedAffinityName {
-				affinity = &bindingSpec.Placement.ClusterAffinities[index].ClusterAffinity
-				break
+			if term.AffinityName != bindingStatus.SchedulerObservedAffinityName {
+				continue
 			}
+
+			affinities = append(affinities, &bindingSpec.Placement.ClusterAffinities[index].ClusterAffinity)
+
+			// OverflowAffinities are designed for workloads that require actual compute resources
+			// (e.g., CPU, memory) to run replicas. When the primary cluster group lacks capacity,
+			// the scheduler overflows to additional cluster groups.
+			// Non-workload resources (e.g., Service, ConfigMap) do not consume compute resources,
+			// so overflow does not apply to them; they use only the primary cluster group.
+			if bindingSpec.IsWorkload() {
+				for i := range term.OverflowAffinities {
+					affinities = append(affinities, &term.OverflowAffinities[i].ClusterAffinity)
+				}
+			}
+			break
 		}
 	}
 
-	if affinity != nil {
-		if util.ClusterMatches(cluster, *affinity) {
-			return framework.NewResult(framework.Success)
+	if affinities != nil {
+		for _, affinity := range affinities {
+			if util.ClusterMatches(cluster, *affinity) {
+				return framework.NewResult(framework.Success)
+			}
 		}
+
 		return framework.NewResult(framework.Unschedulable, "cluster(s) did not match the placement cluster affinity constraint")
 	}
 

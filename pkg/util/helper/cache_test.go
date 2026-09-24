@@ -18,6 +18,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -28,10 +29,109 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	clusterv1alpha1 "github.com/karmada-io/karmada/pkg/apis/cluster/v1alpha1"
+	"github.com/karmada-io/karmada/pkg/util"
+	"github.com/karmada-io/karmada/pkg/util/fedinformer"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/keys"
+	"github.com/karmada-io/karmada/pkg/util/gclient"
 )
+
+func TestRegisterInformerHandlerAndCheckSynced(t *testing.T) {
+	cluster := &clusterv1alpha1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
+	gvr := corev1.SchemeGroupVersion.WithResource("pods")
+	handler := &cache.ResourceEventHandlerFuncs{}
+	dynamicClient := fake.NewSimpleDynamicClient(scheme.Scheme)
+	kubeClient := controllerfake.NewClientBuilder().WithScheme(gclient.NewSchema()).Build()
+
+	tests := []struct {
+		name                 string
+		manager              func(context.Context) genericmanager.MultiClusterInformerManager
+		clusterClientSetFunc util.NewClusterDynamicClientSetFunc
+		wantSynced           bool
+		wantErr              bool
+	}{
+		{
+			name: "registers missing handler and starts informer",
+			manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
+				m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
+				m.ForCluster(cluster.Name, dynamicClient, 0)
+				return m
+			},
+			clusterClientSetFunc: func(string, client.Client, *util.ClientOption) (*util.DynamicClusterClient, error) {
+				return nil, errors.New("should use existing manager")
+			},
+			wantSynced: false,
+		},
+		{
+			name: "returns synced when handler exists and informer synced",
+			manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
+				m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
+				m.ForCluster(cluster.Name, dynamicClient, 0).ForResource(gvr, handler)
+				m.Start(cluster.Name)
+				m.WaitForCacheSync(cluster.Name)
+				return m
+			},
+			clusterClientSetFunc: func(string, client.Client, *util.ClientOption) (*util.DynamicClusterClient, error) {
+				return nil, errors.New("should use existing manager")
+			},
+			wantSynced: true,
+		},
+		{
+			name: "creates manager with cluster client when missing",
+			manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
+				return genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
+			},
+			clusterClientSetFunc: func(clusterName string, _ client.Client, _ *util.ClientOption) (*util.DynamicClusterClient, error) {
+				return &util.DynamicClusterClient{ClusterName: clusterName, DynamicClientSet: dynamicClient}, nil
+			},
+			wantSynced: false,
+		},
+		{
+			name: "returns error when cluster client creation fails",
+			manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
+				return genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
+			},
+			clusterClientSetFunc: func(string, client.Client, *util.ClientOption) (*util.DynamicClusterClient, error) {
+				return nil, errors.New("failed to build dynamic client")
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := tt.manager(t.Context())
+
+			gotSynced, err := RegisterInformerHandlerAndCheckSynced(cluster, []schema.GroupVersionResource{gvr}, handler, mgr, tt.clusterClientSetFunc, kubeClient, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotSynced != tt.wantSynced {
+				t.Fatalf("EnsureInformerHandlersReady() synced = %v, want %v", gotSynced, tt.wantSynced)
+			}
+
+			singleClusterManager := mgr.GetSingleClusterManager(cluster.Name)
+			if singleClusterManager == nil {
+				t.Fatalf("expected single cluster manager")
+			}
+			if !singleClusterManager.IsHandlerExist(gvr, handler) {
+				t.Fatalf("expected handler to be registered")
+			}
+		})
+	}
+}
 
 func TestGetObjectFromCache(t *testing.T) {
 	type args struct {
@@ -50,7 +150,7 @@ func TestGetObjectFromCache(t *testing.T) {
 			args: args{
 				restMapper: meta.NewDefaultRESTMapper(nil),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					return genericmanager.NewMultiClusterInformerManager(ctx)
+					return genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 				},
 				fedKey: keys.FederatedKey{Cluster: "cluster", ClusterWideKey: keys.ClusterWideKey{
 					Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod",
@@ -68,7 +168,7 @@ func TestGetObjectFromCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					return genericmanager.NewMultiClusterInformerManager(ctx)
+					return genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 				},
 				fedKey: keys.FederatedKey{Cluster: "cluster", ClusterWideKey: keys.ClusterWideKey{
 					Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod",
@@ -86,7 +186,7 @@ func TestGetObjectFromCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					m := genericmanager.NewMultiClusterInformerManager(ctx)
+					m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 					m.ForCluster("cluster", fake.NewSimpleDynamicClient(scheme.Scheme), 0)
 					return m
 				},
@@ -106,7 +206,7 @@ func TestGetObjectFromCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					m := genericmanager.NewMultiClusterInformerManager(ctx)
+					m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 					m.ForCluster("cluster", fake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}},
 					), 0)
@@ -133,7 +233,7 @@ func TestGetObjectFromCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					m := genericmanager.NewMultiClusterInformerManager(ctx)
+					m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 					m.ForCluster("cluster", fake.NewSimpleDynamicClient(scheme.Scheme), 0).
 						Lister(corev1.SchemeGroupVersion.WithResource("pods")) // register pod informer
 					m.Start("cluster")
@@ -156,7 +256,7 @@ func TestGetObjectFromCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.MultiClusterInformerManager {
-					m := genericmanager.NewMultiClusterInformerManager(ctx)
+					m := genericmanager.NewMultiClusterInformerManager(ctx, fedinformer.StripUnusedFields)
 					m.ForCluster("cluster", fake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}},
 					), 0).Lister(corev1.SchemeGroupVersion.WithResource("pods")) // register pod informer
@@ -210,7 +310,7 @@ func TestGetObjectFromSingleClusterCache(t *testing.T) {
 			args: args{
 				restMapper: meta.NewDefaultRESTMapper(nil),
 				manager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				cwk: &keys.ClusterWideKey{Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod"},
 			},
@@ -226,7 +326,7 @@ func TestGetObjectFromSingleClusterCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				cwk: &keys.ClusterWideKey{Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod"},
 			},
@@ -243,7 +343,7 @@ func TestGetObjectFromSingleClusterCache(t *testing.T) {
 				}(),
 				manager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := fake.NewSimpleDynamicClient(scheme.Scheme, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}})
-					return genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 				},
 				cwk: &keys.ClusterWideKey{Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod"},
 			},
@@ -264,7 +364,7 @@ func TestGetObjectFromSingleClusterCache(t *testing.T) {
 					return m
 				}(),
 				manager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					m := genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, fake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("pods")) // register pod informer
 					m.Start()
 					m.WaitForCacheSync()
@@ -285,7 +385,7 @@ func TestGetObjectFromSingleClusterCache(t *testing.T) {
 				}(),
 				manager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := fake.NewSimpleDynamicClient(scheme.Scheme, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}})
-					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("pods")) // register pod informer
 					m.Start()
 					m.WaitForCacheSync()

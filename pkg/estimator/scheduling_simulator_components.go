@@ -48,36 +48,62 @@ func NewSchedulingSimulator(nodes []*schedulerframework.NodeInfo) *SchedulingSim
 // FF Algorithm Steps:
 // 1. For each complete set, try to schedule all components using first-fit strategy
 // 2. Continue until no more complete sets can be scheduled or upper limit is reached
-func (s *SchedulingSimulator) SimulateScheduling(components []pb.Component, upperBound int32) int32 {
+func (s *SchedulingSimulator) SimulateScheduling(components []*pb.Component, upperBound int32) (int32, error) {
 	var completeSets int32
 	// Try to schedule complete component sets until we can no longer do so or reach the upper limit.
-	for {
-		if completeSets < upperBound && s.scheduleComponentSet(components) {
-			completeSets++
-		} else {
+	for completeSets < upperBound {
+		ok, err := s.scheduleComponentSet(components)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
 			break
 		}
+		completeSets++
 	}
 
-	return completeSets
+	return completeSets, nil
 }
 
 // scheduleComponentSet attempts to schedule one complete set of all components.
-func (s *SchedulingSimulator) scheduleComponentSet(components []pb.Component) bool {
+func (s *SchedulingSimulator) scheduleComponentSet(components []*pb.Component) (bool, error) {
 	for _, component := range components {
-		if !s.scheduleComponent(component) {
-			return false
+		ok, err := s.scheduleComponent(component)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
 		}
 	}
 
-	return true
+	return true, nil
 }
 
-func (s *SchedulingSimulator) scheduleComponent(component pb.Component) bool {
-	requiredPerReplica := util.NewResource(component.ReplicaRequirements.ResourceRequest)
+func (s *SchedulingSimulator) scheduleComponent(component *pb.Component) (bool, error) {
+	if component == nil {
+		return true, nil
+	}
+
+	var res corev1.ResourceList
+	var affinity nodeaffinity.RequiredNodeAffinity
+	var tolerations []corev1.Toleration
+	var err error
+	if component.ReplicaRequirements != nil {
+		res, err = component.ReplicaRequirements.UnmarshalResourceRequest()
+		if err != nil {
+			return false, err
+		}
+
+		affinity, tolerations, err = GetAffinityAndTolerations(component.ReplicaRequirements.NodeClaim)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	requiredPerReplica := util.NewResource(res)
 	requiredPerReplica.AllowedPodNumber = 1
 	remaining := component.Replicas
-	affinity, tolerations := GetAffinityAndTolerations(component.ReplicaRequirements.NodeClaim)
 
 	for _, node := range s.nodes {
 		if !MatchNode(node, affinity, tolerations) {
@@ -96,21 +122,27 @@ func (s *SchedulingSimulator) scheduleComponent(component pb.Component) bool {
 		node.Allocatable.SubResource(requiredPerReplica.Clone().Multiply(allocatable))
 		remaining -= int32(allocatable) // #nosec G115: integer overflow conversion int64 -> int32
 		if remaining == 0 {
-			return true
+			return true, nil
 		}
 	}
 
-	return remaining == 0
+	return remaining == 0, nil
 }
 
 // GetAffinityAndTolerations extracts node affinity and tolerations from a NodeClaim.
-func GetAffinityAndTolerations(nodeClaim *pb.NodeClaim) (nodeaffinity.RequiredNodeAffinity, []corev1.Toleration) {
-	affinity := nodeutil.GetRequiredNodeAffinity(pb.ReplicaRequirements{NodeClaim: nodeClaim})
+func GetAffinityAndTolerations(nodeClaim *pb.NodeClaim) (nodeaffinity.RequiredNodeAffinity, []corev1.Toleration, error) {
+	affinity, err := nodeutil.GetRequiredNodeAffinity(&pb.ReplicaRequirements{NodeClaim: nodeClaim})
+	if err != nil {
+		return nodeaffinity.RequiredNodeAffinity{}, nil, err
+	}
 	var tolerations []corev1.Toleration
 	if nodeClaim != nil {
-		tolerations = nodeClaim.Tolerations
+		tolerations, err = nodeClaim.UnmarshalTolerations()
+		if err != nil {
+			return nodeaffinity.RequiredNodeAffinity{}, nil, err
+		}
 	}
-	return affinity, tolerations
+	return affinity, tolerations, nil
 }
 
 // MatchNode checks whether the node matches the node affinity and tolerations specified in the component's replica requirements.

@@ -38,9 +38,6 @@ func TestEnsureAggregatedAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeAggregatorClient := fakeAggregator.NewSimpleClientset()
 	fakeClient := fakeclientset.NewClientset()
 	err := EnsureAggregatedAPIService(
@@ -70,9 +67,6 @@ func TestAggregatedAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeClient := fakeAggregator.NewSimpleClientset()
 	err := aggregatedAPIService(fakeClient, name, namespace, caBundle)
 	if err != nil {
@@ -160,9 +154,6 @@ func TestEnsureMetricsAdapterAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeAggregatorClient := fakeAggregator.NewSimpleClientset()
 	fakeClient := fakeclientset.NewClientset()
 	err := EnsureMetricsAdapterAPIService(
@@ -192,9 +183,6 @@ func TestKarmadaMetricsAdapterAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeAggregatorClient := fakeAggregator.NewSimpleClientset()
 	err := karmadaMetricsAdapterAPIService(fakeAggregatorClient, name, namespace, caBundle)
 	if err != nil {
@@ -299,9 +287,6 @@ func TestEnsureSearchAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeAggregatorClient := fakeAggregator.NewSimpleClientset()
 	fakeClient := fakeclientset.NewClientset()
 	err := EnsureSearchAPIService(
@@ -331,9 +316,6 @@ func TestKarmadaSearchAPIService(t *testing.T) {
 	caTestData := "test-ca-data"
 	caBundle := base64.StdEncoding.EncodeToString([]byte(caTestData))
 
-	//nolint:staticcheck
-	// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-	// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 	fakeClient := fakeAggregator.NewSimpleClientset()
 	err := karmadaSearchAPIService(fakeClient, name, namespace, caBundle)
 	if err != nil {

@@ -17,6 +17,8 @@ limitations under the License.
 package nodes
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	schedcorev1 "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
@@ -33,21 +35,25 @@ var (
 )
 
 // GetRequiredNodeAffinity returns the parsing result of pod's nodeSelector and nodeAffinity.
-func GetRequiredNodeAffinity(requirements pb.ReplicaRequirements) nodeaffinity.RequiredNodeAffinity {
-	if requirements.NodeClaim == nil {
-		return nodeaffinity.RequiredNodeAffinity{}
+func GetRequiredNodeAffinity(requirements *pb.ReplicaRequirements) (nodeaffinity.RequiredNodeAffinity, error) {
+	if requirements == nil || requirements.NodeClaim == nil {
+		return nodeaffinity.RequiredNodeAffinity{}, nil
+	}
+	nodeAffinity, err := requirements.NodeClaim.UnmarshalNodeAffinity()
+	if err != nil {
+		return nodeaffinity.RequiredNodeAffinity{}, fmt.Errorf("failed to unmarshal node affinity: %w", err)
 	}
 	pod := &corev1.Pod{
 		Spec: corev1.PodSpec{
 			NodeSelector: requirements.NodeClaim.NodeSelector,
 			Affinity: &corev1.Affinity{
 				NodeAffinity: &corev1.NodeAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: requirements.NodeClaim.NodeAffinity,
+					RequiredDuringSchedulingIgnoredDuringExecution: nodeAffinity,
 				},
 			},
 		},
 	}
-	return nodeaffinity.GetRequiredNodeAffinity(pod)
+	return nodeaffinity.GetRequiredNodeAffinity(pod), nil
 }
 
 // IsNodeAffinityMatched returns whether the node matches the node affinity.

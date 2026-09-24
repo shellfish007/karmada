@@ -27,19 +27,77 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clusterv1alpha1 "github.com/karmada-io/karmada/pkg/apis/cluster/v1alpha1"
+	"github.com/karmada-io/karmada/pkg/util"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/keys"
 	"github.com/karmada-io/karmada/pkg/util/restmapper"
 )
 
+// RegisterInformerHandlerAndCheckSynced registers the handler with the member-cluster informers
+// for the given resources, creating the informers if necessary. It returns whether those informers
+// have already synced without waiting.
+func RegisterInformerHandlerAndCheckSynced(cluster *clusterv1alpha1.Cluster, gvrTargets []schema.GroupVersionResource, handler cache.ResourceEventHandler, manager genericmanager.MultiClusterInformerManager, clusterClientSetFunc util.NewClusterDynamicClientSetFunc, kubeClientSet client.Client, clusterClientOption *util.ClientOption) (bool, error) {
+	singleClusterInformerManager, err := getSingleClusterManager(cluster, manager, clusterClientSetFunc, kubeClientSet, clusterClientOption)
+	if err != nil {
+		return false, err
+	}
+
+	// Check with read locks first. Avoid the full informer check and its write lock
+	// when the target informers are already registered and synced.
+	allSynced := true
+	for _, gvr := range gvrTargets {
+		if !singleClusterInformerManager.IsHandlerExist(gvr, handler) || !singleClusterInformerManager.IsInformerSynced(gvr) {
+			allSynced = false
+			break
+		}
+	}
+	if allSynced {
+		return true, nil
+	}
+
+	// We need an immediate check here and don't need to wait, the timeout is set to 0.
+	singleClusterInformerManager.WaitForCacheSyncWithTimeout(0)
+	allSynced = true
+	for _, gvr := range gvrTargets {
+		if !singleClusterInformerManager.IsHandlerExist(gvr, handler) {
+			allSynced = false
+			singleClusterInformerManager.ForResource(gvr, handler)
+			continue
+		}
+
+		if !singleClusterInformerManager.IsInformerSynced(gvr) {
+			allSynced = false
+		}
+	}
+	if allSynced {
+		return true, nil
+	}
+
+	manager.Start(cluster.Name)
+	return false, nil
+}
+
+func getSingleClusterManager(cluster *clusterv1alpha1.Cluster, manager genericmanager.MultiClusterInformerManager, clusterClientSetFunc util.NewClusterDynamicClientSetFunc, kubeClientSet client.Client, clusterClientOption *util.ClientOption) (genericmanager.SingleClusterInformerManager, error) {
+	singleClusterInformerManager := manager.GetSingleClusterManager(cluster.Name)
+	if singleClusterInformerManager != nil {
+		return singleClusterInformerManager, nil
+	}
+
+	dynamicClusterClient, err := clusterClientSetFunc(cluster.Name, kubeClientSet, clusterClientOption)
+	if err != nil {
+		klog.ErrorS(err, "Failed to build dynamic cluster client.", "cluster", cluster.Name)
+		return nil, err
+	}
+	return manager.ForCluster(dynamicClusterClient.ClusterName, dynamicClusterClient.DynamicClientSet, 0), nil
+}
+
 // GetObjectFromCache gets full object information from cache by key in worker queue.
-func GetObjectFromCache(
-	restMapper meta.RESTMapper,
-	manager genericmanager.MultiClusterInformerManager,
-	fedKey keys.FederatedKey,
-) (*unstructured.Unstructured, error) {
+func GetObjectFromCache(restMapper meta.RESTMapper, manager genericmanager.MultiClusterInformerManager, fedKey keys.FederatedKey) (*unstructured.Unstructured, error) {
 	gvr, err := restmapper.GetGroupVersionResource(restMapper, fedKey.GroupVersionKind())
 	if err != nil {
 		klog.Errorf("Failed to get GVR from GVK %s. Error: %v", fedKey.GroupVersionKind(), err)
@@ -76,8 +134,7 @@ func GetObjectFromCache(
 }
 
 // GetObjectFromSingleClusterCache gets full object information from single cluster cache by key in worker queue.
-func GetObjectFromSingleClusterCache(restMapper meta.RESTMapper, manager genericmanager.SingleClusterInformerManager,
-	cwk *keys.ClusterWideKey) (*unstructured.Unstructured, error) {
+func GetObjectFromSingleClusterCache(restMapper meta.RESTMapper, manager genericmanager.SingleClusterInformerManager, cwk *keys.ClusterWideKey) (*unstructured.Unstructured, error) {
 	gvr, err := restmapper.GetGroupVersionResource(restMapper, cwk.GroupVersionKind())
 	if err != nil {
 		klog.Errorf("Failed to get GVR from GVK %s. Error: %v", cwk.GroupVersionKind(), err)
@@ -105,11 +162,7 @@ func GetObjectFromSingleClusterCache(restMapper meta.RESTMapper, manager generic
 }
 
 // getObjectFromSingleCluster will try to get resource from single cluster by DynamicClientSet.
-func getObjectFromSingleCluster(
-	gvr schema.GroupVersionResource,
-	cwk *keys.ClusterWideKey,
-	dynamicClient dynamic.Interface,
-) (*unstructured.Unstructured, error) {
+func getObjectFromSingleCluster(gvr schema.GroupVersionResource, cwk *keys.ClusterWideKey, dynamicClient dynamic.Interface) (*unstructured.Unstructured, error) {
 	obj, err := dynamicClient.Resource(gvr).Namespace(cwk.Namespace).Get(context.TODO(), cwk.Name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err

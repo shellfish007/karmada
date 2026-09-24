@@ -19,11 +19,12 @@ limitations under the License.
 package tools
 
 import (
-	_ "github.com/gogo/protobuf/protoc-gen-gogo"
 	_ "github.com/onsi/ginkgo/v2/ginkgo"
 	_ "github.com/vektra/mockery/v3"
 	_ "go.uber.org/mock/mockgen"
 	_ "golang.org/x/tools/cmd/goimports"
+	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
+	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
 	_ "k8s.io/code-generator"
 	_ "k8s.io/kube-openapi/cmd/openapi-gen"
 )

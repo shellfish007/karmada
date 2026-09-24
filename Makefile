@@ -116,6 +116,7 @@ GOTEST=gotestsum ${GOTESTSUM_FLAGS} --
 endif
 
 .PHONY: test
+
 test: GO_TEST_FLAGS ?= --race --v -covermode=atomic
 test: install_gotestsum
 	mkdir -p ./_output/coverage/

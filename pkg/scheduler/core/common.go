@@ -20,19 +20,30 @@ import (
 	"fmt"
 	"time"
 
+	clusterv1alpha1 "github.com/karmada-io/karmada/pkg/apis/cluster/v1alpha1"
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
+	"github.com/karmada-io/karmada/pkg/features"
+	schedulercache "github.com/karmada-io/karmada/pkg/scheduler/cache"
 	"github.com/karmada-io/karmada/pkg/scheduler/core/spreadconstraint"
 	"github.com/karmada-io/karmada/pkg/scheduler/framework"
 	"github.com/karmada-io/karmada/pkg/scheduler/metrics"
 )
 
 // SelectClusters selects clusters based on the placement and resource binding spec.
-func SelectClusters(clustersScore framework.ClusterScoreList, placement *policyv1alpha1.Placement, spec *workv1alpha2.ResourceBindingSpec) ([]spreadconstraint.ClusterDetailInfo, error) {
+func SelectClusters(clustersScore framework.ClusterScoreList, placement *policyv1alpha1.Placement, spec *workv1alpha2.ResourceBindingSpec, status *workv1alpha2.ResourceBindingStatus, assigningCache *schedulercache.AssigningResourceBindingCache) ([]spreadconstraint.ClusterDetailInfo, error) {
 	startTime := time.Now()
 	defer metrics.ScheduleStep(metrics.ScheduleStepSelect, startTime)
 
-	groupClustersInfo := spreadconstraint.GroupClustersWithScore(clustersScore, placement, spec, calAvailableReplicas)
+	calAvailableReplicasFunc := func(clusters []*clusterv1alpha1.Cluster, spec *workv1alpha2.ResourceBindingSpec) []workv1alpha2.TargetCluster {
+		return calAvailableReplicas(clusters, spec, assigningCache)
+	}
+	groupClustersInfo := spreadconstraint.GroupClustersWithScore(clustersScore, placement, spec, status, calAvailableReplicasFunc)
+	if features.FeatureGate.Enabled(features.MultiplePodTemplatesScheduling) && isMultiTemplateSchedulingApplicable(spec) {
+		// For multi-component workloads, they are scheduled as a whole and do not support replica division.
+		// The scheduling unit is 1 (i.e., 1 instance of the multi-component template), so we require 1 available replica.
+		return spreadconstraint.SelectBestClusters(placement, groupClustersInfo, 1)
+	}
 	return spreadconstraint.SelectBestClusters(placement, groupClustersInfo, spec.Replicas)
 }
 
@@ -55,24 +66,105 @@ func AssignReplicas(clusters []spreadconstraint.ClusterDetailInfo, spec *workv1a
 	// the deprecation of binding.spec.replicas and binding.spec.ReplicaRequirements. After that, the check should be changed to
 	// len(spec.Components) == 1.
 	if (spec.Replicas > 0 || spec.ReplicaRequirements != nil) && len(spec.Components) <= 1 {
-		state := newAssignState(clusters, spec, status)
-		assignFunc, ok := assignFuncMap[state.strategyType]
-		if !ok {
-			// should never happen at present
-			return nil, fmt.Errorf("unsupported replica scheduling strategy, replicaSchedulingType: %s, replicaDivisionPreference: %s, "+
-				"please try another scheduling strategy", spec.Placement.ReplicaSchedulingType(), spec.Placement.ReplicaScheduling.ReplicaDivisionPreference)
-		}
-		assignResults, err := assignFunc(state)
-		if err != nil {
-			return nil, err
-		}
-		return removeZeroReplicasCluster(assignResults), nil
+		return assignWorkloadReplicas(clusters, spec, status)
 	}
 
 	// For non-workloads (e.g., Service, Config) and multi-component workloads (e.g., FlinkDeployment), propagate to all candidate clusters.
 	targetClusters := make([]workv1alpha2.TargetCluster, len(clusters))
+	recordComponentResult := features.FeatureGate.Enabled(features.MultiplePodTemplatesScheduling) &&
+		len(spec.Components) > 1 && isMultiTemplateSchedulingApplicable(spec)
 	for i, cluster := range clusters {
 		targetClusters[i] = workv1alpha2.TargetCluster{Name: cluster.Cluster.Name}
+		if recordComponentResult {
+			targetClusters[i].Components = buildTargetComponents(spec.Components)
+		}
 	}
 	return targetClusters, nil
+}
+
+func buildTargetComponents(components []workv1alpha2.Component) []workv1alpha2.TargetComponent {
+	result := make([]workv1alpha2.TargetComponent, len(components))
+	for i := range components {
+		result[i] = workv1alpha2.TargetComponent{
+			Name:     components[i].Name,
+			Replicas: components[i].Replicas,
+		}
+	}
+	return result
+}
+
+// assignWorkloadReplicas assigns replicas to clusters for workloads, supporting overflow if enabled.
+func assignWorkloadReplicas(clusters []spreadconstraint.ClusterDetailInfo, spec *workv1alpha2.ResourceBindingSpec, status *workv1alpha2.ResourceBindingStatus) ([]workv1alpha2.TargetCluster, error) {
+	if enableOverflow(spec, status) {
+		clusterTiers := make(map[int][]spreadconstraint.ClusterDetailInfo)
+		availableReplicasPerTier := make(map[int]int64)
+		var maxOverflowOrder int
+		for _, cluster := range clusters {
+			clusterTiers[int(cluster.OverflowOrder)] = append(clusterTiers[int(cluster.OverflowOrder)], cluster)
+			availableReplicasPerTier[int(cluster.OverflowOrder)] += cluster.AvailableReplicas
+			if int(cluster.OverflowOrder) > maxOverflowOrder {
+				maxOverflowOrder = int(cluster.OverflowOrder)
+			}
+		}
+
+		var finalResults []workv1alpha2.TargetCluster
+		remaining := spec.Replicas
+		specCopy := spec.DeepCopy()
+		for i := 0; i <= maxOverflowOrder; i++ {
+			if len(clusterTiers[i]) == 0 {
+				continue
+			}
+
+			// Safe conversion int64 -> int32: min(...) is always bounded by remaining, which is int32.
+			specCopy.Replicas = int32(min(int64(remaining), availableReplicasPerTier[i])) // #nosec G115: integer overflow conversion int64 -> int32
+			results, err := assignReplicasToClusters(clusterTiers[i], specCopy, status)
+			if err != nil {
+				return nil, err
+			}
+			finalResults = append(finalResults, results...)
+			remaining -= specCopy.Replicas
+
+			if remaining <= 0 {
+				break
+			}
+		}
+
+		if remaining > 0 {
+			return nil, &framework.UnschedulableError{Message: "Clusters available replicas are not enough to schedule."}
+		}
+		return finalResults, nil
+	}
+
+	return assignReplicasToClusters(clusters, spec, status)
+}
+
+func assignReplicasToClusters(clusters []spreadconstraint.ClusterDetailInfo, spec *workv1alpha2.ResourceBindingSpec, status *workv1alpha2.ResourceBindingStatus) ([]workv1alpha2.TargetCluster, error) {
+	state := newAssignState(clusters, spec, status)
+	assignFunc, ok := assignFuncMap[state.strategyType]
+	if !ok {
+		// should never happen at present
+		return nil, fmt.Errorf("unsupported replica scheduling strategy, replicaSchedulingType: %s, replicaDivisionPreference: %s, "+
+			"please try another scheduling strategy", spec.Placement.ReplicaSchedulingType(), spec.Placement.ReplicaScheduling.ReplicaDivisionPreference)
+	}
+	assignResults, err := assignFunc(state)
+	if err != nil {
+		return nil, err
+	}
+	return removeZeroReplicasCluster(assignResults), nil
+}
+
+func enableOverflow(spec *workv1alpha2.ResourceBindingSpec, status *workv1alpha2.ResourceBindingStatus) bool {
+	if spec.Placement.ClusterAffinity != nil || spec.Placement.ClusterAffinities == nil || len(status.SchedulerObservedAffinityName) == 0 {
+		return false
+	}
+
+	for _, affinity := range spec.Placement.ClusterAffinities {
+		if affinity.AffinityName == status.SchedulerObservedAffinityName {
+			if affinity.OverflowAffinities != nil {
+				return true
+			}
+		}
+	}
+
+	return false
 }

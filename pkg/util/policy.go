@@ -25,3 +25,20 @@ func IsLazyActivationEnabled(activationPreference policyv1alpha1.ActivationPrefe
 	}
 	return activationPreference == policyv1alpha1.LazyActivation
 }
+
+// IsOverflowSchedulingAllowed judges whether the replica scheduling strategy allows overflow.
+// Overflow is allowed with 'Divided' replica scheduling type combined with 'Aggregated' or 'Weighted' (with dynamic weight) preference.
+func IsOverflowSchedulingAllowed(replicaScheduling *policyv1alpha1.ReplicaSchedulingStrategy) bool {
+	if replicaScheduling == nil || replicaScheduling.ReplicaSchedulingType != policyv1alpha1.ReplicaSchedulingTypeDivided {
+		return false
+	}
+
+	switch replicaScheduling.ReplicaDivisionPreference {
+	case policyv1alpha1.ReplicaDivisionPreferenceAggregated:
+		return true
+	case policyv1alpha1.ReplicaDivisionPreferenceWeighted:
+		return replicaScheduling.WeightPreference != nil && replicaScheduling.WeightPreference.DynamicWeight != ""
+	default:
+		return false
+	}
+}

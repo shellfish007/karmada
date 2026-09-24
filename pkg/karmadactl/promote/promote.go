@@ -39,7 +39,6 @@ import (
 	"k8s.io/klog/v2"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 
 	configv1alpha1 "github.com/karmada-io/karmada/pkg/apis/config/v1alpha1"
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
@@ -56,6 +55,7 @@ import (
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter/default/native/prune"
 	"github.com/karmada-io/karmada/pkg/resourceinterpreter/default/thirdparty"
 	u "github.com/karmada-io/karmada/pkg/util"
+	"github.com/karmada-io/karmada/pkg/util/fedinformer"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/gclient"
 	"github.com/karmada-io/karmada/pkg/util/names"
@@ -456,7 +456,7 @@ func (o *CommandPromoteOption) promoteDeps(memberClusterFactory cmdutil.Factory,
 	defer cancel()
 	dynamicClientSet := dynamicClientBuilder(config)
 
-	controlPlaneInformerManager := genericmanager.NewSingleClusterInformerManager(ctx, dynamicClientSet, 0)
+	controlPlaneInformerManager := genericmanager.NewSingleClusterInformerManager(ctx, dynamicClientSet, 0, fedinformer.StripUnusedFields)
 	controlPlaneKubeClientSet := kubeClientBuilder(config)
 	sharedFactory := informers.NewSharedInformerFactory(controlPlaneKubeClientSet, 0)
 	serviceLister := sharedFactory.Core().V1().Services().Lister()
@@ -770,7 +770,7 @@ func buildPropagationPolicy(resourceName, policyName, namespace, cluster string,
 				},
 			},
 			ConflictResolution:          policyv1alpha1.ConflictOverwrite,
-			PreserveResourcesOnDeletion: ptr.To[bool](true),
+			PreserveResourcesOnDeletion: new(true),
 		},
 	}
 	return pp
@@ -797,7 +797,7 @@ func buildClusterPropagationPolicy(resourceName, policyName, cluster string, gvr
 				},
 			},
 			ConflictResolution:          policyv1alpha1.ConflictOverwrite,
-			PreserveResourcesOnDeletion: ptr.To[bool](true),
+			PreserveResourcesOnDeletion: new(true),
 		},
 	}
 	return cpp

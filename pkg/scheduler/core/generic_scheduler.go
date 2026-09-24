@@ -95,7 +95,7 @@ func (g *genericScheduler) Schedule(
 	}
 	klog.V(4).Infof("Feasible clusters scores: %v", clustersScore)
 
-	selectedClusters, err := g.selectClusters(clustersScore, spec.Placement, spec)
+	selectedClusters, err := g.selectClusters(clustersScore, spec.Placement, spec, status)
 	if err != nil {
 		return result, fmt.Errorf("failed to select clusters: %w", err)
 	}
@@ -194,8 +194,8 @@ func (g *genericScheduler) prioritizeClusters(
 }
 
 func (g *genericScheduler) selectClusters(clustersScore framework.ClusterScoreList,
-	placement *policyv1alpha1.Placement, spec *workv1alpha2.ResourceBindingSpec) ([]spreadconstraint.ClusterDetailInfo, error) {
-	return SelectClusters(clustersScore, placement, spec)
+	placement *policyv1alpha1.Placement, spec *workv1alpha2.ResourceBindingSpec, status *workv1alpha2.ResourceBindingStatus) ([]spreadconstraint.ClusterDetailInfo, error) {
+	return SelectClusters(clustersScore, placement, spec, status, g.schedulerCache.AssigningResourceBindings())
 }
 
 func (g *genericScheduler) assignReplicas(clusters []spreadconstraint.ClusterDetailInfo, spec *workv1alpha2.ResourceBindingSpec,

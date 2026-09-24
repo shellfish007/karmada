@@ -357,6 +357,17 @@ app: {{- include "karmada.name" .}}-search
     secretName: {{ $name }}-cert
 {{- end -}}
 
+{{- define "karmada.schedulerEstimator.cert.volume" -}}
+{{ $name :=  include "karmada.name" . }}
+- name: karmada-certs
+  secret:
+  {{- if eq .Values.installMode "host" }}
+    secretName: {{ $name }}-cert
+  {{- else }}
+    secretName: {{ .Values.schedulerEstimator.certs }}
+  {{- end }}
+{{- end -}}
+
 {{/*
 Common env for POD_IP
 */}}
@@ -694,4 +705,20 @@ If none are set, outputs nothing.
       EOF
   volumeMounts:
     {{- include "karmada.kubeconfig.volumeMount" .| nindent 4 }}
+{{- end -}}
+
+{{/*
+Build the certificate hosts list with systemNamespace SANs.
+When deploying to a namespace other than systemNamespace, the certificate
+must also cover *.{systemNamespace}.svc so that karmada-apiserver can verify
+the aggregated-apiserver's TLS cert when accessing APIService backends.
+See: https://github.com/karmada-io/karmada/blob/f2b734140bd0ba5fa399ffa1d08a3b31ce78c099/operator/pkg/certs/certs.go#L490-L506 for the equivalent logic.
+*/}}
+{{- define "karmada.certHosts" -}}
+  {{- $hosts := .Values.certs.auto.hosts -}}
+  {{- if ne .Values.systemNamespace .Release.Namespace -}}
+    {{- $hosts = append $hosts (printf "*.%s.svc.%s" .Values.systemNamespace .Values.clusterDomain) -}}
+    {{- $hosts = append $hosts (printf "*.%s.svc" .Values.systemNamespace) -}}
+  {{- end -}}
+  {{- tpl (toJson $hosts) . -}}
 {{- end -}}

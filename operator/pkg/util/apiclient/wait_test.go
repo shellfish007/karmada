@@ -126,9 +126,6 @@ func TestWaitForAPIService(t *testing.T) {
 					Version: "v1beta1",
 				},
 			},
-			//nolint:staticcheck
-			// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-			// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 			client: fakeAggregator.NewSimpleClientset(),
 			prep: func(client aggregator.Interface, _ *apiregistrationv1.APIService) error {
 				aggregateClientFromConfigBuilder = func(*rest.Config) (aggregator.Interface, error) {
@@ -156,9 +153,6 @@ func TestWaitForAPIService(t *testing.T) {
 					Version: "v1beta1",
 				},
 			},
-			//nolint:staticcheck
-			// Note: disable `deprecation` check SA1019 until we bump to Kuberentes v1.36.
-			// Tracked by: https://github.com/karmada-io/karmada/issues/7009
 			client: fakeAggregator.NewSimpleClientset(),
 			prep: func(client aggregator.Interface, apiService *apiregistrationv1.APIService) error {
 				apiServiceCreated, err := client.ApiregistrationV1().APIServices().Create(context.TODO(), apiService, metav1.CreateOptions{})

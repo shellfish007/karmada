@@ -17,6 +17,7 @@ limitations under the License.
 package estimator
 
 import (
+	"fmt"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,32 +32,29 @@ import (
 func TestMatchNode(t *testing.T) {
 	tests := []struct {
 		name                string
-		replicaRequirements pb.ReplicaRequirements
+		replicaRequirements *pb.ReplicaRequirements
 		node                *schedulerframework.NodeInfo
 		expected            bool
 	}{
 		{
 			name: "no enough information to perform the match operation - should match",
-			replicaRequirements: pb.ReplicaRequirements{
-				ResourceRequest: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1"),
-				},
-				NodeClaim: &pb.NodeClaim{
-					NodeAffinity: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "zone",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"us-west"},
-									},
+			replicaRequirements: (&pb.ReplicaRequirements{
+				NodeClaim: (&pb.NodeClaim{}).MustSetNodeAffinity(&corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "zone",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"us-west"},
 								},
 							},
 						},
 					},
-				},
-			},
+				}),
+			}).MustSetResourceRequest(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}),
 			node: func() *schedulerframework.NodeInfo {
 				return schedulerframework.NewNodeInfo()
 			}(),
@@ -64,11 +62,9 @@ func TestMatchNode(t *testing.T) {
 		},
 		{
 			name: "no constraints - should match",
-			replicaRequirements: pb.ReplicaRequirements{
-				ResourceRequest: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1"),
-				},
-			},
+			replicaRequirements: (&pb.ReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}),
 			node: func() *schedulerframework.NodeInfo {
 				nodeInfo := schedulerframework.NewNodeInfo()
 				nodeInfo.SetNode(makeNode("node1", map[string]string{}, corev1.ResourceList{
@@ -80,26 +76,23 @@ func TestMatchNode(t *testing.T) {
 		},
 		{
 			name: "node affinity matches",
-			replicaRequirements: pb.ReplicaRequirements{
-				ResourceRequest: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1"),
-				},
-				NodeClaim: &pb.NodeClaim{
-					NodeAffinity: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "zone",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"us-west"},
-									},
+			replicaRequirements: (&pb.ReplicaRequirements{
+				NodeClaim: (&pb.NodeClaim{}).MustSetNodeAffinity(&corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "zone",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"us-west"},
 								},
 							},
 						},
 					},
-				},
-			},
+				}),
+			}).MustSetResourceRequest(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}),
 			node: func() *schedulerframework.NodeInfo {
 				nodeInfo := schedulerframework.NewNodeInfo()
 				nodeInfo.SetNode(makeNode("node1", map[string]string{"zone": "us-west"}, corev1.ResourceList{
@@ -111,26 +104,23 @@ func TestMatchNode(t *testing.T) {
 		},
 		{
 			name: "node affinity does not match",
-			replicaRequirements: pb.ReplicaRequirements{
-				ResourceRequest: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("1"),
-				},
-				NodeClaim: &pb.NodeClaim{
-					NodeAffinity: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "zone",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"us-west"},
-									},
+			replicaRequirements: (&pb.ReplicaRequirements{
+				NodeClaim: (&pb.NodeClaim{}).MustSetNodeAffinity(&corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "zone",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"us-west"},
 								},
 							},
 						},
 					},
-				},
-			},
+				}),
+			}).MustSetResourceRequest(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}),
 			node: func() *schedulerframework.NodeInfo {
 				nodeInfo := schedulerframework.NewNodeInfo()
 				nodeInfo.SetNode(makeNode("node1", map[string]string{"zone": "us-east"}, corev1.ResourceList{
@@ -144,7 +134,10 @@ func TestMatchNode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			affinity, tolerations := GetAffinityAndTolerations(tt.replicaRequirements.NodeClaim)
+			affinity, tolerations, err := GetAffinityAndTolerations(tt.replicaRequirements.NodeClaim)
+			if err != nil {
+				t.Fatalf("GetAffinityAndTolerations() error: %v", err)
+			}
 			result := MatchNode(tt.node, affinity, tolerations)
 			if result != tt.expected {
 				t.Errorf("MatchNode() = %v, expected %v", result, tt.expected)
@@ -157,7 +150,7 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 	tests := []struct {
 		name         string
 		nodes        []*schedulerframework.NodeInfo
-		components   []pb.Component
+		components   []*pb.Component
 		upperBound   int32
 		expectedSets int32
 	}{
@@ -170,16 +163,14 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods:   resource.MustParse("10"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "web",
 					Replicas: 2,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -194,26 +185,22 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods:   resource.MustParse("10"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "web",
 					Replicas: 2,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1"),
-							corev1.ResourceMemory: resource.MustParse("2Gi"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					}),
 				},
 				{
 					Name:     "db",
 					Replicas: 1,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("4Gi"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("2"),
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -228,15 +215,13 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods:   resource.MustParse("10"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "web",
 					Replicas: 1,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -250,15 +235,13 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods: resource.MustParse("10"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "web",
 					Replicas: 1,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}),
 				},
 			},
 			upperBound:   3,
@@ -276,15 +259,13 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods: resource.MustParse("10"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "web",
 					Replicas: 3,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -309,26 +290,22 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods:   resource.MustParse("30"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "frontend",
 					Replicas: 2,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}),
 				},
 				{
 					Name:     "backend",
 					Replicas: 1,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("4Gi"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("2"),
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -354,15 +331,13 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 					corev1.ResourcePods: resource.MustParse("5"),
 				}),
 			},
-			components: []pb.Component{
+			components: []*pb.Component{
 				{
 					Name:     "microservice",
 					Replicas: 1,
-					ReplicaRequirements: pb.ComponentReplicaRequirements{
-						ResourceRequest: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("2"),
-						},
-					},
+					ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					}),
 				},
 			},
 			upperBound:   10,
@@ -373,9 +348,82 @@ func TestSchedulingSimulator_SimulateSchedulingFF(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			simulator := NewSchedulingSimulator(tt.nodes)
-			result := simulator.SimulateScheduling(tt.components, tt.upperBound)
+			result, err := simulator.SimulateScheduling(tt.components, tt.upperBound)
+			if err != nil {
+				t.Fatalf("SimulateScheduling() error: %v", err)
+			}
 			if result != tt.expectedSets {
 				t.Errorf("SimulateScheduling() = %d, expected %d", result, tt.expectedSets)
+			}
+		})
+	}
+}
+
+// BenchmarkSimulateScheduling_AssumedWorkloadDeduction benchmarks the deduction loop
+// used in the noderesource estimator plugin: for each assumed workload, call
+// SimulateScheduling with upperBound=1 to consume its node resources.
+//
+// Scenario assumptions:
+//   - Scheduler throughput ~100 RB/min, TTL 5 min → up to 500 assumed workloads in cache
+//   - Each assumed workload has 2 components (typical multi-template app: web + db)
+//   - Node clusters of 100 / 500 / 1000 nodes
+func BenchmarkSimulateScheduling_AssumedWorkloadDeduction(b *testing.B) {
+	nodeSizes := []int{100, 500, 1000}
+	const assumedCount = 500
+
+	// Build a typical 2-component assumed workload (web + db pattern)
+	makeAssumedComponents := func() []*pb.Component {
+		return []*pb.Component{
+			{
+				Name:     "web",
+				Replicas: 2,
+				ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("500m"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				}),
+			},
+			{
+				Name:     "db",
+				Replicas: 1,
+				ReplicaRequirements: (&pb.ComponentReplicaRequirements{}).MustSetResourceRequest(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+				}),
+			},
+		}
+	}
+
+	// Build 500 assumed workloads
+	assumedWorkloads := make([][]*pb.Component, assumedCount)
+	for i := range assumedWorkloads {
+		assumedWorkloads[i] = makeAssumedComponents()
+	}
+
+	// makeNodes returns fresh node clones (nodes are mutated during simulation)
+	makeNodes := func(n int) []*schedulerframework.NodeInfo {
+		nodes := make([]*schedulerframework.NodeInfo, n)
+		for i := range nodes {
+			allocatable := corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("16"),
+				corev1.ResourceMemory: resource.MustParse("32Gi"),
+				corev1.ResourcePods:   resource.MustParse("110"),
+			}
+			nodes[i] = createNodeInfo(fmt.Sprintf("node-%d", i), allocatable)
+		}
+		return nodes
+	}
+
+	for _, nodeCount := range nodeSizes {
+		b.Run(fmt.Sprintf("nodes=%d/assumedWorkloads=%d", nodeCount, assumedCount), func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				// Each benchmark iteration simulates one EstimateComponents call:
+				// clone fresh nodes (mimics getNodesAvailableResources) then deduct all assumed workloads
+				nodes := makeNodes(nodeCount)
+				simulator := NewSchedulingSimulator(nodes)
+				for _, components := range assumedWorkloads {
+					_, _ = simulator.SimulateScheduling(components, 1)
+				}
 			}
 		})
 	}

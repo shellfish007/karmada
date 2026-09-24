@@ -40,6 +40,7 @@ import (
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
 	workv1alpha1 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
+	"github.com/karmada-io/karmada/pkg/util/fedinformer"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/genericmanager"
 	"github.com/karmada-io/karmada/pkg/util/fedinformer/keys"
 	"github.com/karmada-io/karmada/pkg/util/gclient"
@@ -529,7 +530,7 @@ func TestObtainBindingSpecExistingClusters(t *testing.T) {
 			want: sets.New("member1", "member2", "member3"),
 		},
 		{
-			name: "unique cluster names with GracefulEvictionTasks with PurgeMode Immediately",
+			name: "unique cluster names with GracefulEvictionTasks with PurgeMode Directly",
 			bindingSpec: workv1alpha2.ResourceBindingSpec{
 				Clusters: []workv1alpha2.TargetCluster{
 					{
@@ -1006,7 +1007,7 @@ func TestFetchWorkload(t *testing.T) {
 			args: args{
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: meta.NewDefaultRESTMapper(nil),
 				resource:   workv1alpha2.ObjectReference{APIVersion: "v1", Kind: "Pod"},
@@ -1019,7 +1020,7 @@ func TestFetchWorkload(t *testing.T) {
 			args: args{
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: func() meta.RESTMapper {
 					m := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion})
@@ -1042,7 +1043,7 @@ func TestFetchWorkload(t *testing.T) {
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 					&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}}),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: func() meta.RESTMapper {
 					m := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion})
@@ -1073,7 +1074,7 @@ func TestFetchWorkload(t *testing.T) {
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}})
-					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("pods"))
 					m.Start()
 					m.WaitForCacheSync()
@@ -1107,7 +1108,7 @@ func TestFetchWorkload(t *testing.T) {
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 					&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}}),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: func() meta.RESTMapper {
 					m := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion})
@@ -1136,7 +1137,7 @@ func TestFetchWorkload(t *testing.T) {
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node"}})
-					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("nodes"))
 					m.Start()
 					m.WaitForCacheSync()
@@ -1203,7 +1204,7 @@ func TestFetchWorkloadByLabelSelector(t *testing.T) {
 			args: args{
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: meta.NewDefaultRESTMapper(nil),
 				resource:   workv1alpha2.ObjectReference{APIVersion: "v1", Kind: "Pod"},
@@ -1217,7 +1218,7 @@ func TestFetchWorkloadByLabelSelector(t *testing.T) {
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 					&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default", Labels: map[string]string{"foo": "foo"}}}),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: func() meta.RESTMapper {
 					m := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion})
@@ -1241,7 +1242,7 @@ func TestFetchWorkloadByLabelSelector(t *testing.T) {
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default", Labels: map[string]string{"bar": "foo"}}})
-					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("pods"))
 					m.Start()
 					m.WaitForCacheSync()
@@ -1269,7 +1270,7 @@ func TestFetchWorkloadByLabelSelector(t *testing.T) {
 				dynamicClient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 					&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: map[string]string{"bar": "bar"}}}),
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
-					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0)
+					return genericmanager.NewSingleClusterInformerManager(ctx, dynamicfake.NewSimpleDynamicClient(scheme.Scheme), 0, fedinformer.StripUnusedFields)
 				},
 				restMapper: func() meta.RESTMapper {
 					m := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion})
@@ -1293,7 +1294,7 @@ func TestFetchWorkloadByLabelSelector(t *testing.T) {
 				informerManager: func(ctx context.Context) genericmanager.SingleClusterInformerManager {
 					c := dynamicfake.NewSimpleDynamicClient(scheme.Scheme,
 						&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: map[string]string{"bar": "foo"}}})
-					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0)
+					m := genericmanager.NewSingleClusterInformerManager(ctx, c, 0, fedinformer.StripUnusedFields)
 					m.Lister(corev1.SchemeGroupVersion.WithResource("nodes"))
 					m.Start()
 					m.WaitForCacheSync()
@@ -1824,6 +1825,352 @@ func TestObtainClustersWithPurgeModeDirectly(t *testing.T) {
 			gotClusters := ObtainClustersWithPurgeModeDirectly(tt.bindingSpec)
 			if !gotClusters.Equal(tt.wantClusters) {
 				t.Errorf("ObtainClustersWithPurgeModeDirectly() = %v, want %v", gotClusters.UnsortedList(), tt.wantClusters.UnsortedList())
+			}
+		})
+	}
+}
+
+func TestGetWeightSum(t *testing.T) {
+	tests := []struct {
+		name     string
+		list     ClusterWeightInfoList
+		expected int64
+	}{
+		{
+			name:     "empty list",
+			list:     ClusterWeightInfoList{},
+			expected: 0,
+		},
+		{
+			name: "single cluster",
+			list: ClusterWeightInfoList{
+				{ClusterName: "cluster1", Weight: 5},
+			},
+			expected: 5,
+		},
+		{
+			name: "multiple clusters",
+			list: ClusterWeightInfoList{
+				{ClusterName: "cluster1", Weight: 1},
+				{ClusterName: "cluster2", Weight: 2},
+				{ClusterName: "cluster3", Weight: 3},
+			},
+			expected: 6,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.list.GetWeightSum()
+			if got != tt.expected {
+				t.Errorf("GetWeightSum() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNewDispenser(t *testing.T) {
+	tests := []struct {
+		name        string
+		numReplicas int32
+		init        []workv1alpha2.TargetCluster
+		uuid        types.UID
+	}{
+		{
+			name:        "nil init",
+			numReplicas: 5,
+			init:        nil,
+			uuid:        "",
+		},
+		{
+			name:        "with initial assignment",
+			numReplicas: 10,
+			init: []workv1alpha2.TargetCluster{
+				{Name: "cluster1", Replicas: 3},
+				{Name: "cluster2", Replicas: 7},
+			},
+			uuid: "4858ca61-3ff8-4095-8267-f3d059d8074c",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDispenser(tt.numReplicas, tt.init, tt.uuid)
+			if d == nil {
+				t.Fatal("NewDispenser() returned nil")
+			}
+			if d.NumReplicas != tt.numReplicas {
+				t.Errorf("NumReplicas = %v, want %v", d.NumReplicas, tt.numReplicas)
+			}
+			if len(d.Result) != len(tt.init) {
+				t.Errorf("Result length = %v, want %v", len(d.Result), len(tt.init))
+			}
+			if len(tt.init) > 0 {
+				if !reflect.DeepEqual(d.Result, tt.init) {
+					t.Errorf("Result = %v, want %v", d.Result, tt.init)
+				}
+				d.Result[0].Replicas = 999
+				if tt.init[0].Replicas == 999 {
+					t.Error("NewDispenser() should make a copy of init, not reference it")
+				}
+			}
+		})
+	}
+}
+
+func TestDone(t *testing.T) {
+	tests := []struct {
+		name        string
+		numReplicas int32
+		result      []workv1alpha2.TargetCluster
+		expected    bool
+	}{
+		{
+			name:        "done: zero replicas with non-empty result",
+			numReplicas: 0,
+			result:      []workv1alpha2.TargetCluster{{Name: "cluster1", Replicas: 3}},
+			expected:    true,
+		},
+		{
+			name:        "not done: non-zero replicas",
+			numReplicas: 5,
+			result:      []workv1alpha2.TargetCluster{{Name: "cluster1", Replicas: 3}},
+			expected:    false,
+		},
+		{
+			name:        "not done: zero replicas but empty result",
+			numReplicas: 0,
+			result:      []workv1alpha2.TargetCluster{},
+			expected:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Dispenser{
+				NumReplicas: tt.numReplicas,
+				Result:      tt.result,
+			}
+			if got := d.Done(); got != tt.expected {
+				t.Errorf("Done() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetStaticWeightInfoListByTargetClusters(t *testing.T) {
+	tests := []struct {
+		name      string
+		tcs       []workv1alpha2.TargetCluster
+		scheduled []workv1alpha2.TargetCluster
+		expected  ClusterWeightInfoList
+	}{
+		{
+			name:      "empty target clusters",
+			tcs:       []workv1alpha2.TargetCluster{},
+			scheduled: []workv1alpha2.TargetCluster{},
+			expected:  ClusterWeightInfoList{},
+		},
+		{
+			name: "no scheduled clusters",
+			tcs: []workv1alpha2.TargetCluster{
+				{Name: "cluster1", Replicas: 2},
+				{Name: "cluster2", Replicas: 3},
+			},
+			scheduled: []workv1alpha2.TargetCluster{},
+			expected: ClusterWeightInfoList{
+				{ClusterName: "cluster1", Weight: 2, LastReplicas: 0},
+				{ClusterName: "cluster2", Weight: 3, LastReplicas: 0},
+			},
+		},
+		{
+			name: "with matching scheduled clusters",
+			tcs: []workv1alpha2.TargetCluster{
+				{Name: "cluster1", Replicas: 2},
+				{Name: "cluster2", Replicas: 3},
+			},
+			scheduled: []workv1alpha2.TargetCluster{
+				{Name: "cluster1", Replicas: 5},
+			},
+			expected: ClusterWeightInfoList{
+				{ClusterName: "cluster1", Weight: 2, LastReplicas: 5},
+				{ClusterName: "cluster2", Weight: 3, LastReplicas: 0},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetStaticWeightInfoListByTargetClusters(tt.tcs, tt.scheduled)
+			if len(got) != len(tt.expected) {
+				t.Errorf("length = %v, want %v", len(got), len(tt.expected))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("index %d: got %+v, want %+v", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestIsBindingScheduled(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   *workv1alpha2.ResourceBindingStatus
+		expected bool
+	}{
+		{
+			name: "scheduled true",
+			status: &workv1alpha2.ResourceBindingStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:   workv1alpha2.Scheduled,
+						Status: metav1.ConditionTrue,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "scheduled false",
+			status: &workv1alpha2.ResourceBindingStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:   workv1alpha2.Scheduled,
+						Status: metav1.ConditionFalse,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "no conditions",
+			status:   &workv1alpha2.ResourceBindingStatus{},
+			expected: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsBindingScheduled(tt.status)
+			if got != tt.expected {
+				t.Errorf("IsBindingScheduled() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConstructObjectReference(t *testing.T) {
+	tests := []struct {
+		name     string
+		rs       policyv1alpha1.ResourceSelector
+		expected workv1alpha2.ObjectReference
+	}{
+		{
+			name: "full resource selector",
+			rs: policyv1alpha1.ResourceSelector{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Namespace:  "default",
+				Name:       "my-app",
+			},
+			expected: workv1alpha2.ObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Namespace:  "default",
+				Name:       "my-app",
+			},
+		},
+		{
+			name: "cluster scoped resource",
+			rs: policyv1alpha1.ResourceSelector{
+				APIVersion: "v1",
+				Kind:       "Node",
+				Name:       "node1",
+			},
+			expected: workv1alpha2.ObjectReference{
+				APIVersion: "v1",
+				Kind:       "Node",
+				Name:       "node1",
+			},
+		},
+		{
+			name:     "empty resource selector",
+			rs:       policyv1alpha1.ResourceSelector{},
+			expected: workv1alpha2.ObjectReference{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ConstructObjectReference(tt.rs)
+			if got != tt.expected {
+				t.Errorf("ConstructObjectReference() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateNodeClaimByPodSpec(t *testing.T) {
+	tests := []struct {
+		name     string
+		podSpec  *corev1.PodSpec
+		expected *workv1alpha2.NodeClaim
+	}{
+		{
+			name:     "empty pod spec returns nil",
+			podSpec:  &corev1.PodSpec{},
+			expected: nil,
+		},
+		{
+			name: "with node selector",
+			podSpec: &corev1.PodSpec{
+				NodeSelector: map[string]string{"disktype": "ssd"},
+			},
+			expected: &workv1alpha2.NodeClaim{
+				NodeSelector: map[string]string{"disktype": "ssd"},
+			},
+		},
+		{
+			name: "with tolerations",
+			podSpec: &corev1.PodSpec{
+				Tolerations: []corev1.Toleration{
+					{Key: "key1", Operator: corev1.TolerationOpExists},
+				},
+			},
+			expected: &workv1alpha2.NodeClaim{
+				Tolerations: []corev1.Toleration{
+					{Key: "key1", Operator: corev1.TolerationOpExists},
+				},
+			},
+		},
+		{
+			name: "with node affinity",
+			podSpec: &corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{
+								{MatchFields: []corev1.NodeSelectorRequirement{
+									{Key: "foo", Operator: corev1.NodeSelectorOpExists},
+								}},
+							},
+						},
+					},
+				},
+			},
+			expected: &workv1alpha2.NodeClaim{
+				HardNodeAffinity: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{MatchFields: []corev1.NodeSelectorRequirement{
+							{Key: "foo", Operator: corev1.NodeSelectorOpExists},
+						}},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateNodeClaimByPodSpec(tt.podSpec)
+			if !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("GenerateNodeClaimByPodSpec() = %+v, want %+v", got, tt.expected)
 			}
 		})
 	}

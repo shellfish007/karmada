@@ -295,12 +295,12 @@ func Test_buildTaskOptions(t *testing.T) {
 				workv1alpha2.WithProducer(CRBApplicationFailoverControllerName),
 				workv1alpha2.WithReason(workv1alpha2.EvictionReasonApplicationFailure),
 				workv1alpha2.WithPreservedLabelState(map[string]string{"key-a": "2", "key-b": "true"}),
-				workv1alpha2.WithSuppressDeletion(ptr.To[bool](true)),
+				workv1alpha2.WithSuppressDeletion(new(true)),
 				workv1alpha2.WithClustersBeforeFailover([]string{"c0"})),
 			wantErr: assert.NoError,
 		},
 		{
-			name: "Immediately purgeMode with ClusterResourceBinding",
+			name: "Directly purgeMode with ClusterResourceBinding",
 			args: args{
 				failoverBehavior: &policyv1alpha1.ApplicationFailoverBehavior{
 					DecisionConditions: policyv1alpha1.DecisionConditions{

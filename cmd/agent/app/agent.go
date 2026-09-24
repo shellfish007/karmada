@@ -35,7 +35,6 @@ import (
 	logsv1 "k8s.io/component-base/logs/api/v1"
 	"k8s.io/component-base/term"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -227,7 +226,7 @@ func run(ctx context.Context, opts *options.Options) error {
 				schema.GroupKind{Group: clusterv1alpha1.GroupName, Kind: "Cluster"}.String(): opts.ConcurrentClusterSyncs,
 			},
 			CacheSyncTimeout: opts.ClusterCacheSyncTimeout.Duration,
-			UsePriorityQueue: ptr.To(features.FeatureGate.Enabled(features.ControllerPriorityQueue)),
+			UsePriorityQueue: new(features.FeatureGate.Enabled(features.ControllerPriorityQueue)),
 		},
 		NewCache: func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
 			opts.DefaultTransform = fedinformer.StripUnusedFields
@@ -263,7 +262,7 @@ func run(ctx context.Context, opts *options.Options) error {
 func setupControllers(ctx context.Context, mgr controllerruntime.Manager, opts *options.Options) error {
 	restConfig := mgr.GetConfig()
 	dynamicClientSet := dynamic.NewForConfigOrDie(restConfig)
-	controlPlaneInformerManager := genericmanager.NewSingleClusterInformerManager(ctx, dynamicClientSet, 0)
+	controlPlaneInformerManager := genericmanager.NewSingleClusterInformerManager(ctx, dynamicClientSet, 0, fedinformer.StripUnusedFields)
 	controlPlaneKubeClientSet := kubeclientset.NewForConfigOrDie(restConfig)
 
 	// We need a service lister to build a resource interpreter with `ClusterIPServiceResolver`
@@ -280,7 +279,7 @@ func setupControllers(ctx context.Context, mgr controllerruntime.Manager, opts *
 	rateLimiterGetter := util.GetClusterRateLimiterGetter().SetDefaultLimits(opts.ClusterAPIQPS, opts.ClusterAPIBurst)
 	clusterClientOption := &util.ClientOption{RateLimiterGetter: rateLimiterGetter.GetRateLimiter}
 
-	objectWatcher := objectwatcher.NewObjectWatcher(mgr.GetClient(), mgr.GetRESTMapper(), util.NewClusterDynamicClientSetForAgent, clusterClientOption, resourceInterpreter)
+	objectWatcher := objectwatcher.NewObjectWatcher(mgr.GetClient(), mgr.GetRESTMapper(), util.NewClusterDynamicClientSetForAgent, clusterClientOption, resourceInterpreter, genericmanager.GetInstance())
 	controllerContext := controllerscontext.Context{
 		Mgr:           mgr,
 		ObjectWatcher: objectWatcher,
@@ -346,12 +345,14 @@ func startClusterStatusController(ctx controllerscontext.Context) (bool, error) 
 
 func startExecutionController(ctx controllerscontext.Context) (bool, error) {
 	executionController := &execution.Controller{
-		Client:             ctx.Mgr.GetClient(),
-		EventRecorder:      ctx.Mgr.GetEventRecorderFor(execution.ControllerName), //nolint:staticcheck // Note: GetEventRecorderFor is deprecated in controller-runtime v0.23.0 in favor of GetEventRecorder. This changes event API from v1 events to events.k8s.io. We need to migrate carefully, especially considering the impact on users and RBAC permission changes in installation/deployment tools.
-		RESTMapper:         ctx.Mgr.GetRESTMapper(),
-		ObjectWatcher:      ctx.ObjectWatcher,
-		InformerManager:    genericmanager.GetInstance(),
-		RateLimiterOptions: ctx.Opts.RateLimiterOptions,
+		Client:               ctx.Mgr.GetClient(),
+		EventRecorder:        ctx.Mgr.GetEventRecorderFor(execution.ControllerName), //nolint:staticcheck // Note: GetEventRecorderFor is deprecated in controller-runtime v0.23.0 in favor of GetEventRecorder. This changes event API from v1 events to events.k8s.io. We need to migrate carefully, especially considering the impact on users and RBAC permission changes in installation/deployment tools.
+		RESTMapper:           ctx.Mgr.GetRESTMapper(),
+		ObjectWatcher:        ctx.ObjectWatcher,
+		InformerManager:      genericmanager.GetInstance(),
+		RateLimiterOptions:   ctx.Opts.RateLimiterOptions,
+		ClusterClientSetFunc: util.NewClusterDynamicClientSetForAgent,
+		ClusterClientOption:  ctx.ClusterClientOption,
 	}
 	if err := executionController.SetupWithManager(ctx.Mgr); err != nil {
 		return false, err
@@ -366,9 +367,8 @@ func startWorkStatusController(ctx controllerscontext.Context) (bool, error) {
 		RESTMapper:                  ctx.Mgr.GetRESTMapper(),
 		InformerManager:             genericmanager.GetInstance(),
 		Context:                     ctx.Context,
-		ObjectWatcher:               ctx.ObjectWatcher,
 		ClusterDynamicClientSetFunc: util.NewClusterDynamicClientSetForAgent,
-		ClusterCacheSyncTimeout:     ctx.Opts.ClusterCacheSyncTimeout,
+		ClusterClientOption:         ctx.ClusterClientOption,
 		ConcurrentWorkStatusSyncs:   ctx.Opts.ConcurrentWorkSyncs,
 		RateLimiterOptions:          ctx.Opts.RateLimiterOptions,
 		ResourceInterpreter:         ctx.ResourceInterpreter,
@@ -390,6 +390,7 @@ func startServiceExportController(ctx controllerscontext.Context) (bool, error) 
 		WorkerNumber:                3,
 		PredicateFunc:               helper.NewPredicateForServiceExportControllerOnAgent(ctx.Opts.ClusterName),
 		ClusterDynamicClientSetFunc: util.NewClusterDynamicClientSetForAgent,
+		ClusterClientOption:         ctx.ClusterClientOption,
 		ClusterCacheSyncTimeout:     ctx.Opts.ClusterCacheSyncTimeout,
 		RateLimiterOptions:          ctx.Opts.RateLimiterOptions,
 	}

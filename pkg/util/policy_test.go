@@ -54,3 +54,78 @@ func TestIsLazyActivationEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestIsOverflowSupport(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy *policyv1alpha1.ReplicaSchedulingStrategy
+		expected bool
+	}{
+		{
+			name:     "nil strategy",
+			strategy: nil,
+			expected: false,
+		},
+		{
+			name: "Duplicated scheduling type",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType: policyv1alpha1.ReplicaSchedulingTypeDuplicated,
+			},
+			expected: false,
+		},
+		{
+			name: "Divided with Aggregated preference",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType:     policyv1alpha1.ReplicaSchedulingTypeDivided,
+				ReplicaDivisionPreference: policyv1alpha1.ReplicaDivisionPreferenceAggregated,
+			},
+			expected: true,
+		},
+		{
+			name: "Divided with Weighted and dynamic weight",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType:     policyv1alpha1.ReplicaSchedulingTypeDivided,
+				ReplicaDivisionPreference: policyv1alpha1.ReplicaDivisionPreferenceWeighted,
+				WeightPreference: &policyv1alpha1.ClusterPreferences{
+					DynamicWeight: policyv1alpha1.DynamicWeightByAvailableReplicas,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Divided with Weighted but nil WeightPreference",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType:     policyv1alpha1.ReplicaSchedulingTypeDivided,
+				ReplicaDivisionPreference: policyv1alpha1.ReplicaDivisionPreferenceWeighted,
+			},
+			expected: false,
+		},
+		{
+			name: "Divided with Weighted but empty DynamicWeight",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType:     policyv1alpha1.ReplicaSchedulingTypeDivided,
+				ReplicaDivisionPreference: policyv1alpha1.ReplicaDivisionPreferenceWeighted,
+				WeightPreference: &policyv1alpha1.ClusterPreferences{
+					StaticWeightList: []policyv1alpha1.StaticClusterWeight{
+						{TargetCluster: policyv1alpha1.ClusterAffinity{ClusterNames: []string{"member1"}}, Weight: 1},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Divided with empty ReplicaDivisionPreference",
+			strategy: &policyv1alpha1.ReplicaSchedulingStrategy{
+				ReplicaSchedulingType: policyv1alpha1.ReplicaSchedulingTypeDivided,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsOverflowSchedulingAllowed(tt.strategy)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

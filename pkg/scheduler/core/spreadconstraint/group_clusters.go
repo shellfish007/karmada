@@ -17,14 +17,14 @@ limitations under the License.
 package spreadconstraint
 
 import (
+	"fmt"
 	"math"
-
-	"k8s.io/utils/ptr"
 
 	clusterv1alpha1 "github.com/karmada-io/karmada/pkg/apis/cluster/v1alpha1"
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
 	"github.com/karmada-io/karmada/pkg/scheduler/framework"
+	"github.com/karmada-io/karmada/pkg/util"
 )
 
 // GroupClustersInfo indicate the cluster global view
@@ -33,7 +33,7 @@ type GroupClustersInfo struct {
 	Regions   map[string]RegionInfo
 	Zones     map[string]ZoneInfo
 
-	// Clusters from global view, sorted by cluster.Score descending.
+	// Clusters from global view, sorted by cluster.OverflowOrder ascending, then cluster.Score descending.
 	Clusters []ClusterDetailInfo
 
 	calAvailableReplicasFunc func(clusters []*clusterv1alpha1.Cluster, spec *workv1alpha2.ResourceBindingSpec) []workv1alpha2.TargetCluster
@@ -49,7 +49,7 @@ type ProviderInfo struct {
 	Regions map[string]struct{}
 	// Zones under this provider
 	Zones map[string]struct{}
-	// Clusters under this provider, sorted by cluster.Score descending.
+	// Clusters under this provider, sorted by cluster.OverflowOrder ascending, then cluster.Score descending.
 	Clusters []ClusterDetailInfo
 }
 
@@ -61,7 +61,7 @@ type RegionInfo struct {
 
 	// Zones under this provider
 	Zones map[string]struct{}
-	// Clusters under this region, sorted by cluster.Score descending.
+	// Clusters under this region, sorted by cluster.OverflowOrder ascending, then cluster.Score descending.
 	Clusters []ClusterDetailInfo
 }
 
@@ -71,7 +71,7 @@ type ZoneInfo struct {
 	Score             int64 // the comprehensive score in all clusters of the zone
 	AvailableReplicas int64
 
-	// Clusters under this zone, sorted by cluster.Score descending.
+	// Clusters under this zone, sorted by cluster.OverflowOrder ascending, then cluster.Score descending.
 	Clusters []ClusterDetailInfo
 }
 
@@ -79,6 +79,11 @@ type ZoneInfo struct {
 type ClusterDetailInfo struct {
 	Name  string
 	Score int64
+	// OverflowOrder represents the overflow priority level derived from cluster affinity matching.
+	// A value of 0 means the cluster matches the primary ClusterAffinity (no overflow),
+	// while higher values (1, 2, ...) correspond to successive OverflowAffinities.
+	// A smaller value indicates higher scheduling priority.
+	OverflowOrder int32
 	// AvailableReplicas equal to the sum of the assigned replicas and the allocatable replicas in the cluster
 	AvailableReplicas int64
 
@@ -87,23 +92,32 @@ type ClusterDetailInfo struct {
 	AllocatableReplicas int32
 }
 
+// String returns a human-readable representation of the cluster detail info.
+func (c ClusterDetailInfo) String() string {
+	return fmt.Sprintf("%s(score=%d, availableReplicas=%d, overflowOrder=%d)", c.Name, c.Score, c.AvailableReplicas, c.OverflowOrder)
+}
+
+var _ fmt.Stringer = &ClusterDetailInfo{}
+
 // GroupClustersWithScore groups cluster base provider/region/zone/cluster
 func GroupClustersWithScore(
 	clustersScore framework.ClusterScoreList,
 	placement *policyv1alpha1.Placement,
 	spec *workv1alpha2.ResourceBindingSpec,
+	status *workv1alpha2.ResourceBindingStatus,
 	calAvailableReplicasFunc func(clusters []*clusterv1alpha1.Cluster, spec *workv1alpha2.ResourceBindingSpec) []workv1alpha2.TargetCluster,
 ) *GroupClustersInfo {
 	if isTopologyIgnored(placement) {
-		return groupClustersIgnoringTopology(clustersScore, spec, calAvailableReplicasFunc)
+		return groupClustersIgnoringTopology(clustersScore, spec, status, calAvailableReplicasFunc)
 	}
 
-	return groupClustersBasedTopology(clustersScore, spec, placement.SpreadConstraints, calAvailableReplicasFunc)
+	return groupClustersBasedTopology(clustersScore, spec, status, placement.SpreadConstraints, calAvailableReplicasFunc)
 }
 
 func groupClustersBasedTopology(
 	clustersScore framework.ClusterScoreList,
 	rbSpec *workv1alpha2.ResourceBindingSpec,
+	rbStatus *workv1alpha2.ResourceBindingStatus,
 	spreadConstraints []policyv1alpha1.SpreadConstraint,
 	calAvailableReplicasFunc func(clusters []*clusterv1alpha1.Cluster, spec *workv1alpha2.ResourceBindingSpec) []workv1alpha2.TargetCluster,
 ) *GroupClustersInfo {
@@ -113,7 +127,7 @@ func groupClustersBasedTopology(
 		Zones:     make(map[string]ZoneInfo),
 	}
 	groupClustersInfo.calAvailableReplicasFunc = calAvailableReplicasFunc
-	groupClustersInfo.generateClustersInfo(clustersScore, rbSpec)
+	groupClustersInfo.generateClustersInfo(clustersScore, rbSpec, rbStatus)
 	groupClustersInfo.generateZoneInfo(spreadConstraints, rbSpec)
 	groupClustersInfo.generateRegionInfo(spreadConstraints, rbSpec)
 	groupClustersInfo.generateProviderInfo(spreadConstraints, rbSpec)
@@ -124,11 +138,12 @@ func groupClustersBasedTopology(
 func groupClustersIgnoringTopology(
 	clustersScore framework.ClusterScoreList,
 	rbSpec *workv1alpha2.ResourceBindingSpec,
+	rbStatus *workv1alpha2.ResourceBindingStatus,
 	calAvailableReplicasFunc func(clusters []*clusterv1alpha1.Cluster, spec *workv1alpha2.ResourceBindingSpec) []workv1alpha2.TargetCluster,
 ) *GroupClustersInfo {
 	groupClustersInfo := &GroupClustersInfo{}
 	groupClustersInfo.calAvailableReplicasFunc = calAvailableReplicasFunc
-	groupClustersInfo.generateClustersInfo(clustersScore, rbSpec)
+	groupClustersInfo.generateClustersInfo(clustersScore, rbSpec, rbStatus)
 
 	return groupClustersInfo
 }
@@ -335,13 +350,14 @@ func (info *GroupClustersInfo) calcGroupScore(
 	return targetReplica + sumScore/validClusters
 }
 
-func (info *GroupClustersInfo) generateClustersInfo(clustersScore framework.ClusterScoreList, rbSpec *workv1alpha2.ResourceBindingSpec) {
+func (info *GroupClustersInfo) generateClustersInfo(clustersScore framework.ClusterScoreList, rbSpec *workv1alpha2.ResourceBindingSpec, rbStatus *workv1alpha2.ResourceBindingStatus) {
 	var clusters []*clusterv1alpha1.Cluster
 	for _, clusterScore := range clustersScore {
 		clusterInfo := ClusterDetailInfo{}
 		clusterInfo.Name = clusterScore.Cluster.Name
 		clusterInfo.Score = clusterScore.Score
 		clusterInfo.Cluster = clusterScore.Cluster
+		clusterInfo.OverflowOrder = getClusterOverflowOrder(clusterScore.Cluster, rbSpec, rbStatus)
 		info.Clusters = append(info.Clusters, clusterInfo)
 		clusters = append(clusters, clusterScore.Cluster)
 	}
@@ -355,7 +371,7 @@ func (info *GroupClustersInfo) generateClustersInfo(clustersScore framework.Clus
 
 	sortClusters(info.Clusters, func(i *ClusterDetailInfo, j *ClusterDetailInfo) *bool {
 		if i.AvailableReplicas != j.AvailableReplicas {
-			return ptr.To(i.AvailableReplicas > j.AvailableReplicas)
+			return new(i.AvailableReplicas > j.AvailableReplicas)
 		}
 		return nil
 	})
@@ -495,4 +511,33 @@ func isTopologyIgnored(placement *policyv1alpha1.Placement) bool {
 	}
 
 	return shouldIgnoreSpreadConstraint(placement)
+}
+
+// getClusterOverflowOrder returns the overflow priority level of the cluster. A smaller value means the cluster has higher priority.
+func getClusterOverflowOrder(cluster *clusterv1alpha1.Cluster, bindingSpec *workv1alpha2.ResourceBindingSpec, bindingStatus *workv1alpha2.ResourceBindingStatus) int32 {
+	var affinityTerm *policyv1alpha1.ClusterAffinityTerm
+	if bindingSpec.Placement == nil || bindingSpec.Placement.ClusterAffinity != nil || len(bindingSpec.Placement.ClusterAffinities) == 0 {
+		return 0
+	}
+	for index, term := range bindingSpec.Placement.ClusterAffinities {
+		if term.AffinityName == bindingStatus.SchedulerObservedAffinityName {
+			affinityTerm = &bindingSpec.Placement.ClusterAffinities[index]
+			break
+		}
+	}
+
+	if affinityTerm != nil {
+		if util.ClusterMatches(cluster, affinityTerm.ClusterAffinity) {
+			return 0
+		}
+		for index, affinity := range affinityTerm.OverflowAffinities {
+			if util.ClusterMatches(cluster, affinity.ClusterAffinity) {
+				return int32(index + 1) // nolint:gosec // G115: integer overflow conversion int -> int32
+			}
+		}
+	}
+
+	// should never happen because clusters are filtered by the ClusterAffinity plugin first.
+	// Return a large order value to ensure unmatched clusters are sorted to the end.
+	return 1000
 }
